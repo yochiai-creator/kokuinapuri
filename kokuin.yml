@@ -1,0 +1,66 @@
+name: 刻印切り出し
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # 30分おきに実行
+  workflow_dispatch:          # 手動実行ボタンも表示
+
+permissions:
+  contents: write             # 処理済みリスト(processed.json)の保存に必要
+  id-token: write             # 鍵不要認証(Workload Identity連携)に必要
+
+concurrency:
+  group: kokuin
+  cancel-in-progress: false
+
+jobs:
+  kokuin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+
+      # 鍵ファイルを使わずGoogleに認証(Workload Identity連携)
+      - name: Googleに認証
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # まず軽いライブラリだけで「新着動画があるか」を確認(数十秒)
+      - name: 軽量ライブラリを導入
+        run: pip install -r requirements-light.txt
+
+      - name: 新着動画を確認
+        id: check
+        run: python kokuin.py check
+
+      # 新着があるときだけ重いライブラリ(OCR)を導入して本処理
+      - name: OCRモデルのキャッシュ
+        if: steps.check.outputs.found == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.EasyOCR
+          key: easyocr-models-v1
+
+      - name: OCRライブラリを導入
+        if: steps.check.outputs.found == 'true'
+        run: pip install -r requirements-heavy.txt
+
+      - name: 刻印を切り出して保存
+        if: steps.check.outputs.found == 'true'
+        run: python kokuin.py process
+
+      - name: 処理済みリストを保存
+        if: steps.check.outputs.found == 'true'
+        run: |
+          git config user.name "kokuin-bot"
+          git config user.email "actions@github.com"
+          git add processed.json
+          git commit -m "処理済みリストを更新" || echo "変更なし"
+          git push || echo "push不要"
