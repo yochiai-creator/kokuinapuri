@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
-"""刻印切り出し: check=新着確認 / process=切り出し本処理"""
+"""刻印切り出し(動体検出+追跡版)
+固定カメラの映像から「動いてくるボンベ」を検出・追跡し、
+1本につき1枚、最も大きく鮮明に写った瞬間を切り出して保存する。
+AIの学習・モデルファイルは不要。
+
+  python kokuin.py check   … 新着確認
+  python kokuin.py process … 切り出し本処理
+"""
 
 import io
 import os
@@ -10,9 +17,6 @@ import time
 import tempfile
 from datetime import datetime, timezone, timedelta
 
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
-
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 PROCESSED_FILE = "processed.json"
 CSV_NAME = "処理結果一覧.csv"
@@ -22,25 +26,13 @@ SOURCE_URL = "https://drive.google.com/drive/folders/15qwtydkXB0OYdopFPVyzPbzN2e
 OUTPUT_URL = "https://drive.google.com/drive/folders/1nTp2jHx0MZLCJLKUJodWEfFToPnNU0wP"
 
 FILE_PREFIX = "kokuin_"
-FRAME_INTERVAL_SEC = 1.0
-MAX_FRAMES = 120
-CROP_MARGIN = 0.2
-MIN_CONFIDENCE = 0.3
-OCR_LANGS = ["ja", "en"]
 
-STAMP_PATTERNS = [
-    r"TP\s?[0-9.,]+",
-    r"W\s?[0-9]+[.,][0-9]+",
-    r"V\s?[0-9]+",
-    r"[0-9]{2}\s?-\s?[0-9]{1,2}",
-    r"[0-9]{4,6}",
-    r"(LP)?[ガカヵ][スズ]",
-]
-
-
-def pattern_hits(text):
-    t = text.replace(" ", "").upper()
-    return sum(1 for p in STAMP_PATTERNS if re.search(p, t))
+# ==== 調整パラメータ ====
+DETECT_STRIDE = 2       # 何フレームおきに解析するか(大きいほど速い)
+MIN_AREA_RATIO = 0.03   # 画面の何割以上の「動く塊」をボンベとみなすか
+MATCH_DIST_RATIO = 0.2  # 追跡:前回位置からこの割合(画面幅比)以内なら同じボンベ
+MIN_TRACK_FRAMES = 5    # これ未満しか映らなかった塊はノイズとして無視
+CROP_MARGIN = 0.10      # 切り出しの余白(ボンベ枠に対する割合)
 
 
 def id_of(s):
@@ -65,6 +57,7 @@ def with_retry(fn, what="通信", tries=3):
 
 def drive():
     import google.auth
+    from googleapiclient.discovery import build
     creds, _ = google.auth.default(scopes=SCOPES)
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
@@ -103,9 +96,123 @@ def check():
             f.write(f"found={'true' if new else 'false'}\n")
 
 
-def process():
+# ============================================================
+#  動体検出+追跡(この関数が本体)
+# ============================================================
+def analyze_video(path, log=print):
+    """動画から「流れてきたボンベ」を追跡し、1本につき最良の1枚を返す。
+    返り値: [{time, crop, seen}, ...] 現れた順"""
     import cv2
-    import easyocr
+
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        raise RuntimeError("動画を開けませんでした")
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+
+    bg = cv2.createBackgroundSubtractorMOG2(
+        history=300, varThreshold=32, detectShadows=True)
+    k_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
+
+    tracks = []   # {id, cx, cy, seen, miss, best:{score,time,frame,box}}
+    next_id = 1
+    frame_idx = 0
+
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        frame_idx += 1
+        if frame_idx % DETECT_STRIDE:
+            continue
+
+        fh, fw = frame.shape[:2]
+        # 解析は縮小画像で(高速化)。切り出しは元解像度から行う
+        scale = min(1.0, 640.0 / fw)
+        small = cv2.resize(frame, None, fx=scale, fy=scale) if scale < 1.0 else frame
+        sh, sw = small.shape[:2]
+
+        fgmask = bg.apply(small)
+        _, fgmask = cv2.threshold(fgmask, 200, 255, cv2.THRESH_BINARY)  # 影(127)を除去
+        fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, k_open)
+        fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_CLOSE, k_close)
+
+        contours, _ = cv2.findContours(fgmask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        dets = []
+        for c in contours:
+            if cv2.contourArea(c) < MIN_AREA_RATIO * sw * sh:
+                continue
+            x, y, w, h = cv2.boundingRect(c)
+            dets.append((x / scale, y / scale, w / scale, h / scale))
+
+        t = frame_idx / fps
+        gray = None
+        used = set()
+        for (x, y, w, h) in dets:
+            cx, cy = x + w / 2, y + h / 2
+            # 既存の追跡と照合(近い位置=同じボンベ)
+            cand = None
+            best_d = MATCH_DIST_RATIO * fw
+            for tr in tracks:
+                if tr["id"] in used or tr["miss"] > 30:
+                    continue
+                d = ((tr["cx"] - cx) ** 2 + (tr["cy"] - cy) ** 2) ** 0.5
+                if d < best_d:
+                    best_d = d
+                    cand = tr
+            if cand is None:
+                cand = {"id": next_id, "cx": cx, "cy": cy,
+                        "seen": 0, "miss": 0, "best": {"score": -1}}
+                tracks.append(cand)
+                next_id += 1
+            used.add(cand["id"])
+            cand.update({"cx": cx, "cy": cy, "miss": 0})
+            cand["seen"] += 1
+
+            # スコア = 大きさ × 鮮明度(最も大きく・ブレずに写った瞬間を採用)
+            if gray is None:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            region = gray[int(y):int(y + h), int(x):int(x + w)]
+            sharp = cv2.Laplacian(region, cv2.CV_64F).var() if region.size else 0
+            sharpness = min(1.0, sharp / 150.0)
+            score = (w * h) * (0.4 + 0.6 * sharpness)
+            if score > cand["best"]["score"]:
+                cand["best"] = {"score": score, "time": t,
+                                "frame": frame.copy(), "box": (x, y, w, h)}
+
+        for tr in tracks:
+            if tr["id"] not in used:
+                tr["miss"] += 1
+
+    cap.release()
+
+    results = []
+    for tr in tracks:
+        if tr["seen"] < MIN_TRACK_FRAMES or tr["best"]["score"] < 0:
+            continue
+        b = tr["best"]
+        results.append({"time": b["time"], "seen": tr["seen"],
+                        "crop": crop_box(b["frame"], b["box"])})
+        log(f"  ボンベ{len(results)}: {b['time']:.1f}秒地点を採用({tr['seen']}回検出)")
+    return results
+
+
+def crop_box(frame, box):
+    fh, fw = frame.shape[:2]
+    x, y, w, h = box
+    mx, my = w * CROP_MARGIN, h * CROP_MARGIN
+    left = max(0, int(x - mx))
+    top = max(0, int(y - my))
+    right = min(fw, int(x + w + mx))
+    bottom = min(fh, int(y + h + my))
+    return frame[top:bottom, left:right]
+
+
+# ============================================================
+#  Drive まわり
+# ============================================================
+def process():
+    import cv2  # 依存確認
 
     svc = drive()
     processed = load_processed()
@@ -114,39 +221,40 @@ def process():
         print("新着なし")
         return
 
-    print("OCRモデルを読み込み中...")
-    reader = easyocr.Reader(OCR_LANGS, verbose=False)
-
     for f in new:
         print(f"処理開始: {f['name']}")
         try:
-            handle_video(svc, reader, f, cv2)
+            handle_video(svc, f)
         except Exception as e:
             print(f"  エラー: {e}")
         processed.add(f["id"])
         save_processed(processed)
 
 
-def handle_video(svc, reader, f, cv2):
+def handle_video(svc, f):
+    import cv2
     with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, "video")
+        path = os.path.join(tmp, "video.mp4")
         download_video(svc, f["id"], path)
 
-        best = find_best_frame(path, reader, cv2)
-        if best is None:
-            print("  → 刻印(文字)を検出できませんでした")
-            append_result_csv(svc, tmp, [now_jst(), f["name"], "(検出失敗)", "", ""])
+        results = analyze_video(path)
+        if not results:
+            print("  → ボンベを検出できませんでした")
+            append_result_csv(svc, tmp, [now_jst(), f["name"], "(検出なし)", "", ""])
             return
 
-        image = crop(best)
-        name = build_filename(svc, best["text"])
-        upload_image(svc, image, name, cv2, tmp)
-        append_result_csv(svc, tmp, [now_jst(), f["name"], name,
-                                     f"{best['time']:.1f}", best["text"]])
-        print(f"  → {name} を保存({best['time']:.1f}秒地点 / 「{best['text']}」)")
+        for r in results:
+            name = f"{FILE_PREFIX}{next_number(svc):04d}.jpg"
+            upload_image(svc, r["crop"], name, cv2, tmp)
+            append_result_csv(svc, tmp, [now_jst(), f["name"], name,
+                                         f"{r['time']:.1f}", f"{r['seen']}回検出"])
+            print(f"  → {name} を保存({r['time']:.1f}秒地点)")
+        print(f"  合計 {len(results)} 本ぶんの画像を保存しました")
 
 
 def download_video(svc, file_id, dest):
+    from googleapiclient.http import MediaIoBaseDownload
+
     def _dl():
         req = svc.files().get_media(fileId=file_id, supportsAllDrives=True)
         with open(dest, "wb") as fp:
@@ -155,135 +263,6 @@ def download_video(svc, file_id, dest):
             while not done:
                 _, done = dl.next_chunk()
     with_retry(_dl, "動画のダウンロード")
-
-
-def enhance_for_ocr(frame, cv2):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    return gray, clahe.apply(gray)
-
-
-def bbox_of(detection):
-    xs = [p[0] for p in detection[0]]
-    ys = [p[1] for p in detection[0]]
-    return min(xs), min(ys), max(xs), max(ys)
-
-
-def cluster_bbox(results):
-    top = max(results, key=lambda r: r[2])
-    tx1, ty1, tx2, ty2 = bbox_of(top)
-    th = max(ty2 - ty1, 1)
-    cx, cy = (tx1 + tx2) / 2, (ty1 + ty2) / 2
-
-    keep = []
-    for r in results:
-        x1, y1, x2, y2 = bbox_of(r)
-        rx, ry = (x1 + x2) / 2, (y1 + y2) / 2
-        if abs(ry - cy) <= th * 8 and abs(rx - cx) <= th * 40:
-            keep.append(r)
-
-    xs, ys = [], []
-    for r in keep:
-        x1, y1, x2, y2 = bbox_of(r)
-        xs += [x1, x2]
-        ys += [y1, y2]
-    x, y = int(min(xs)), int(min(ys))
-    w, h = int(max(xs)) - x, int(max(ys)) - y
-    return x, y, w, h, keep
-
-
-def find_best_frame(video_path, reader, cv2):
-    cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    step = max(1, int(fps * FRAME_INTERVAL_SEC))
-
-    best, checked = None, 0
-    for idx in range(0, total, step):
-        if checked >= MAX_FRAMES:
-            break
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ok, frame = cap.read()
-        if not ok:
-            continue
-        checked += 1
-
-        gray, enhanced = enhance_for_ocr(frame, cv2)
-        results = [r for r in reader.readtext(enhanced) if r[2] >= MIN_CONFIDENCE]
-        if not results:
-            continue
-
-        x, y, w, h, keep = cluster_bbox(results)
-        if w <= 0 or h <= 0:
-            continue
-
-        total_conf = sum(r[2] for r in keep)
-        region = gray[max(0, y):y + h, max(0, x):x + w]
-        sharp = cv2.Laplacian(region, cv2.CV_64F).var() if region.size else 0
-        sharpness = min(1.0, sharp / 200.0)
-        text = " ".join(r[1] for r in keep)
-        hits = pattern_hits(text)
-        score = total_conf * (0.5 + 0.5 * sharpness) * (1 + 0.6 * hits)
-        t = idx / fps
-        print(f"  {t:6.1f}秒: 「{text}」 定型{hits}個 スコア{score:.1f}")
-
-        if best is None or score > best["score"]:
-            best = {"score": score, "time": t, "frame": frame.copy(),
-                    "x": x, "y": y, "w": w, "h": h, "text": text}
-    cap.release()
-    return best
-
-
-def crop(best):
-    frame = best["frame"]
-    fh, fw = frame.shape[:2]
-    mx = int(best["w"] * CROP_MARGIN)
-    my = int(best["h"] * CROP_MARGIN)
-    left, top = max(0, best["x"] - mx), max(0, best["y"] - my)
-    right = min(fw, best["x"] + best["w"] + mx)
-    bottom = min(fh, best["y"] + best["h"] + my)
-    return frame[top:bottom, left:right]
-
-
-def extract_stamp_info(text):
-    t = text.upper().replace(",", ".")
-    m = re.search(r"W\s*([0-9]{1,3}\.[0-9]{1,2})", t)
-    weight = m.group(1) if m else None
-    serial = None
-    for tok in re.split(r"\s+", t):
-        if re.fullmatch(r"[0-9]{4,6}", tok):
-            serial = tok
-            break
-    if serial is None:
-        m = re.search(r"[A-Z]([0-9]{4,6})(?![0-9])", t)
-        serial = m.group(1) if m else None
-    return serial, weight
-
-
-def build_filename(svc, text):
-    serial, weight = extract_stamp_info(text)
-    if serial:
-        base = serial + (f"_W{weight}" if weight else "")
-        return unique_name(svc, base)
-    return f"{FILE_PREFIX}{next_number(svc):04d}.jpg"
-
-
-def unique_name(svc, base):
-    res = with_retry(lambda: svc.files().list(
-        q=f"'{OUT}' in parents and name contains '{base}' and trashed = false",
-        fields="files(name)",
-        pageSize=1000,
-        supportsAllDrives=True,
-        includeItemsFromAllDrives=True,
-        corpora="allDrives",
-    ).execute(), "同名確認")
-    existing = {f["name"] for f in res.get("files", [])}
-    if f"{base}.jpg" not in existing:
-        return f"{base}.jpg"
-    n = 2
-    while f"{base}({n}).jpg" in existing:
-        n += 1
-    return f"{base}({n}).jpg"
 
 
 def next_number(svc):
@@ -304,6 +283,7 @@ def next_number(svc):
 
 
 def upload_image(svc, image, name, cv2, tmp):
+    from googleapiclient.http import MediaFileUpload
     ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 95])
     if not ok:
         raise RuntimeError("JPEGエンコードに失敗")
@@ -323,6 +303,7 @@ def now_jst():
 
 
 def append_result_csv(svc, tmp, row):
+    from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
     line = ",".join('"' + str(c).replace('"', '""').replace("\n", " ") + '"' for c in row)
     res = with_retry(lambda: svc.files().list(
         q=f"'{OUT}' in parents and name = '{CSV_NAME}' and trashed = false",
@@ -343,7 +324,7 @@ def append_result_csv(svc, tmp, row):
         content = buf.getvalue().decode("utf-8-sig", errors="replace").rstrip("\n")
         content += "\n" + line + "\n"
     else:
-        header = '"処理日時","動画ファイル名","保存画像名","動画内の秒数","読み取れた文字"'
+        header = '"処理日時","動画ファイル名","保存画像名","動画内の秒数","備考"'
         content = header + "\n" + line + "\n"
 
     path = os.path.join(tmp, "results.csv")
