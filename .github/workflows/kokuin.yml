@@ -46,7 +46,7 @@ jobs:
 
       - name: OCRライブラリを導入
         if: steps.check.outputs.found == 'true'
-        run: pip install opencv-python-headless easyocr
+        run: pip install opencv-python-headless
 
       - name: 刻印を切り出して保存
         if: steps.check.outputs.found == 'true'
