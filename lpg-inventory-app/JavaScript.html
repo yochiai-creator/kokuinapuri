@@ -62,15 +62,19 @@
     records.forEach(function (r) {
       var tr = document.createElement('tr');
       tr.innerHTML =
-        '<td>' + escapeHtml(r.no) + '</td>' +
-        '<td>' + escapeHtml(r.name) + '</td>' +
-        '<td>' + escapeHtml(r.position) + '</td>' +
+        '<td class="no-cell">' + escapeHtml(r.no) + '</td>' +
+        '<td>' +
+        '  <div class="name-cell">' + escapeHtml(r.name) + '</div>' +
+        '  <div class="position-cell">' + escapeHtml(r.position) + '</div>' +
+        '</td>' +
         '<td>' + utilCellHtml(r.a20, r.m20) + '</td>' +
         '<td>' + utilCellHtml(r.a30, r.m30) + '</td>' +
         '<td>' + utilCellHtml(r.a50, r.m50) + '</td>' +
-        '<td>' + escapeHtml(r.note) + '</td>' +
-        '<td>' + escapeHtml(r.updatedAt) + '</td>' +
-        '<td>' + escapeHtml(r.updatedBy) + '</td>' +
+        '<td class="note-cell">' + escapeHtml(r.note) + '</td>' +
+        '<td class="updated-cell">' +
+        '  <div>' + escapeHtml(r.updatedAt) + '</div>' +
+        '  <div class="updated-by">' + escapeHtml(r.updatedBy) + '</div>' +
+        '</td>' +
         '<td><button class="secondary edit-btn">編集</button></td>';
 
       tr.querySelector('.edit-btn').addEventListener('click', function () {
