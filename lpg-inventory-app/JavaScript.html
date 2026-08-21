@@ -138,6 +138,46 @@
     { name: '第５倉庫', x: 13570.8, y: 10723.6, w: 672.0, h: 287.7 }
   ];
 
+  // 敷地全体の境界(フェンス)。塗りなしの太枠で表示。
+  var SITE_BOUNDARY = { x: 842.3, y: 362.0, w: 14925.7, h: 11517.7 };
+
+  // ラベルの無い小さな建屋・設備(タンク・小屋など)。
+  var SITE_UNLABELED = [
+    { x: 11262.7, y: 9896.5, w: 419.1, h: 247.6 },
+    { x: 8586.2, y: 8343.9, w: 28.6, h: 114.3 },
+    { x: 5090.5, y: 8772.5, w: 361.9, h: 266.7 },
+    { x: 4490.4, y: 5600.7, w: 381.0, h: 361.9 },
+    { x: 2452.1, y: 4924.4, w: 381.0, h: 323.8 },
+    { x: 4442.8, y: 5695.9, w: 866.8, h: 457.2 },
+    { x: 12248.8, y: 4141.1, w: 214.8, h: 183.0 }
+  ];
+
+  // 道路・フェンス・敷地境界の縁取りなど、図面上の線。
+  var SITE_LINES = [
+    { x1: 1042.4, y1: 4343.4, x2: 1061.4, y2: 7067.6 },
+    { x1: 890.0, y1: 4200.5, x2: 1137.6, y2: 4362.4 },
+    { x1: 794.7, y1: 2495.6, x2: 851.9, y2: 3657.6 },
+    { x1: 851.9, y1: 3657.6, x2: 1137.6, y2: 3857.6 },
+    { x1: 804.2, y1: 2057.4, x2: 832.8, y2: 2505.1 },
+    { x1: 3365.6, y1: 9667.0, x2: 9461.3, y2: 11401.4 },
+    { x1: 9491.0, y1: 11077.6, x2: 9433.9, y2: 11249.0 },
+    { x1: 9461.3, y1: 11398.1, x2: 13634.4, y2: 12072.7 },
+    { x1: 14396.4, y1: 19.1, x2: 16644.3, y2: 5305.4 },
+    { x1: 15501.3, y1: 5295.9, x2: 16672.9, y2: 7991.5 },
+    { x1: 13695.5, y1: 8305.8, x2: 15444.2, y2: 12061.5 },
+    { x1: 3061.0, y1: 2466.8, x2: 3061.0, y2: 2670.6 }
+  ];
+
+  // 敷地の凹凸のある境界付近(図面上は自由図形)。破線の目安枠として表示。
+  var SITE_BOUNDARY_ZONES = [
+    { x: 1118.6, y: 7048.5, w: 2247.0, h: 2622.8 },
+    { x: 832.8, y: 1447.8, w: 2428.9, h: 609.6 },
+    { x: 2766.4, y: 866.8, w: 1295.4, h: 676.3 },
+    { x: 3414.1, y: 1533.5, w: 3105.2, h: 247.7 },
+    { x: 6500.2, y: 57.1, w: 4772.0, h: 1647.8 },
+    { x: 11262.7, y: 0.0, w: 3152.8, h: 57.1 }
+  ];
+
   // 置場番号(no) -> 敷地図上の座標(建屋と同じEMU/1000スケール)。建屋名との対応が確認できたものだけをここに置く。
   // 大型製缶(⑦-1/⑦-2/⑧/⑨)と西製品倉庫(⑭/㉔)は同じ建屋を共有するため、建屋の幅の中で少しずらして配置。
   var LOCATION_MARKER_POS = {
@@ -165,6 +205,44 @@
     var svg = document.getElementById('siteMapSvg');
     var svgNS = 'http://www.w3.org/2000/svg';
     svg.innerHTML = '';
+
+    var boundary = document.createElementNS(svgNS, 'rect');
+    boundary.setAttribute('class', 'site-boundary-rect');
+    boundary.setAttribute('x', SITE_BOUNDARY.x);
+    boundary.setAttribute('y', SITE_BOUNDARY.y);
+    boundary.setAttribute('width', SITE_BOUNDARY.w);
+    boundary.setAttribute('height', SITE_BOUNDARY.h);
+    svg.appendChild(boundary);
+
+    SITE_BOUNDARY_ZONES.forEach(function (z) {
+      var zone = document.createElementNS(svgNS, 'rect');
+      zone.setAttribute('class', 'site-boundary-zone');
+      zone.setAttribute('x', z.x);
+      zone.setAttribute('y', z.y);
+      zone.setAttribute('width', z.w);
+      zone.setAttribute('height', z.h);
+      svg.appendChild(zone);
+    });
+
+    SITE_LINES.forEach(function (l) {
+      var line = document.createElementNS(svgNS, 'line');
+      line.setAttribute('class', 'site-road-line');
+      line.setAttribute('x1', l.x1);
+      line.setAttribute('y1', l.y1);
+      line.setAttribute('x2', l.x2);
+      line.setAttribute('y2', l.y2);
+      svg.appendChild(line);
+    });
+
+    SITE_UNLABELED.forEach(function (u) {
+      var rect = document.createElementNS(svgNS, 'rect');
+      rect.setAttribute('class', 'site-unlabeled-rect');
+      rect.setAttribute('x', u.x);
+      rect.setAttribute('y', u.y);
+      rect.setAttribute('width', u.w);
+      rect.setAttribute('height', u.h);
+      svg.appendChild(rect);
+    });
 
     SITE_BUILDINGS.forEach(function (b) {
       var rect = document.createElementNS(svgNS, 'rect');
