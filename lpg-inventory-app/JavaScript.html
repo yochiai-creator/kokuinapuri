@@ -1,0 +1,228 @@
+<script>
+  var SIZE_KEYS = ['20', '30', '50'];
+
+  document.addEventListener('DOMContentLoaded', function () {
+    search();
+
+    document.getElementById('searchBtn').addEventListener('click', search);
+    document.getElementById('addBtn').addEventListener('click', function () { openAddModal(); });
+    document.getElementById('keyword').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') search();
+    });
+    document.getElementById('onlyNearFull').addEventListener('change', search);
+  });
+
+  function search() {
+    var filters = {
+      keyword: document.getElementById('keyword').value,
+      onlyNearFull: document.getElementById('onlyNearFull').checked
+    };
+
+    google.script.run
+      .withSuccessHandler(renderTable)
+      .withFailureHandler(showTopError)
+      .getInventory(filters);
+  }
+
+  function renderTable(records) {
+    var tbody = document.getElementById('tbody');
+    var emptyMsg = document.getElementById('emptyMsg');
+    tbody.innerHTML = '';
+
+    if (!records.length) {
+      emptyMsg.style.display = 'block';
+      return;
+    }
+    emptyMsg.style.display = 'none';
+
+    records.forEach(function (r) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + escapeHtml(r.no) + '</td>' +
+        '<td>' + escapeHtml(r.name) + '</td>' +
+        '<td>' + escapeHtml(r.position) + '</td>' +
+        '<td>' + utilCellHtml(r.a20, r.m20) + '</td>' +
+        '<td>' + utilCellHtml(r.a30, r.m30) + '</td>' +
+        '<td>' + utilCellHtml(r.a50, r.m50) + '</td>' +
+        '<td>' + escapeHtml(r.note) + '</td>' +
+        '<td>' + escapeHtml(r.updatedAt) + '</td>' +
+        '<td>' + escapeHtml(r.updatedBy) + '</td>' +
+        '<td><button class="secondary edit-btn">編集</button></td>';
+
+      tr.querySelector('.edit-btn').addEventListener('click', function () {
+        openEditModal(r);
+      });
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  function utilCellHtml(actual, max) {
+    actual = Number(actual) || 0;
+    max = Number(max) || 0;
+
+    if (max <= 0) {
+      return '<div class="util-cell util-empty">-</div>';
+    }
+
+    var pct = Math.round((actual / max) * 100);
+    var barClass = 'util-bar-fill';
+    if (pct >= 100) barClass += ' over';
+    else if (pct >= 80) barClass += ' warn';
+
+    return (
+      '<div class="util-cell">' +
+      '  <span class="util-numbers">' + actual + ' / ' + max + ' (' + pct + '%)</span>' +
+      '  <div class="util-bar"><div class="' + barClass + '" style="width:' + Math.min(100, pct) + '%"></div></div>' +
+      '</div>'
+    );
+  }
+
+  function openEditModal(record) {
+    var html =
+      '<div class="modal-backdrop" id="modalBackdrop">' +
+      '  <div class="modal wide">' +
+      '    <h2>置場を編集: ' + escapeHtml(record.no) + ' ' + escapeHtml(record.name) + '</h2>' +
+      '    <div class="field"><label>置場名</label><input id="f_name" value="' + escapeAttr(record.name) + '"></div>' +
+      '    <div class="field"><label>位置</label><input id="f_position" value="' + escapeAttr(record.position) + '"></div>' +
+      '    <div class="field-grid">' +
+      '      <div class="field"><label>20kg 実績</label><input id="f_a20" type="number" value="' + numAttr(record.a20) + '"></div>' +
+      '      <div class="field"><label>20kg MAX</label><input id="f_m20" type="number" value="' + numAttr(record.m20) + '"></div>' +
+      '      <div class="field"><label>30kg 実績</label><input id="f_a30" type="number" value="' + numAttr(record.a30) + '"></div>' +
+      '      <div class="field"><label>30kg MAX</label><input id="f_m30" type="number" value="' + numAttr(record.m30) + '"></div>' +
+      '      <div class="field"><label>50kg 実績</label><input id="f_a50" type="number" value="' + numAttr(record.a50) + '"></div>' +
+      '      <div class="field"><label>50kg MAX</label><input id="f_m50" type="number" value="' + numAttr(record.m50) + '"></div>' +
+      '    </div>' +
+      '    <div class="field"><label>備考</label><input id="f_note" value="' + escapeAttr(record.note) + '"></div>' +
+      '    <div id="modalError" class="error-text"></div>' +
+      '    <div class="modal-actions">' +
+      '      <button class="secondary" id="modalCancel">キャンセル</button>' +
+      '      <button id="modalSave">保存</button>' +
+      '    </div>' +
+      '  </div>' +
+      '</div>';
+
+    document.getElementById('modalRoot').innerHTML = html;
+    document.getElementById('modalCancel').addEventListener('click', closeModal);
+
+    document.getElementById('modalSave').addEventListener('click', function () {
+      var updates = {
+        name: document.getElementById('f_name').value,
+        position: document.getElementById('f_position').value,
+        a20: document.getElementById('f_a20').value,
+        m20: document.getElementById('f_m20').value,
+        a30: document.getElementById('f_a30').value,
+        m30: document.getElementById('f_m30').value,
+        a50: document.getElementById('f_a50').value,
+        m50: document.getElementById('f_m50').value,
+        note: document.getElementById('f_note').value
+      };
+
+      var btn = document.getElementById('modalSave');
+      btn.disabled = true;
+
+      google.script.run
+        .withSuccessHandler(function () {
+          closeModal();
+          search();
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          document.getElementById('modalError').textContent = err.message || String(err);
+        })
+        .updateLocation(record.no, updates);
+    });
+  }
+
+  function openAddModal() {
+    var html =
+      '<div class="modal-backdrop" id="modalBackdrop">' +
+      '  <div class="modal wide">' +
+      '    <h2>新規置場を登録</h2>' +
+      '    <div class="field"><label>番号 *</label><input id="f_no"></div>' +
+      '    <div class="field"><label>置場名</label><input id="f_name"></div>' +
+      '    <div class="field"><label>位置</label><input id="f_position"></div>' +
+      '    <div class="field-grid">' +
+      '      <div class="field"><label>20kg 実績</label><input id="f_a20" type="number" value="0"></div>' +
+      '      <div class="field"><label>20kg MAX</label><input id="f_m20" type="number" value="0"></div>' +
+      '      <div class="field"><label>30kg 実績</label><input id="f_a30" type="number" value="0"></div>' +
+      '      <div class="field"><label>30kg MAX</label><input id="f_m30" type="number" value="0"></div>' +
+      '      <div class="field"><label>50kg 実績</label><input id="f_a50" type="number" value="0"></div>' +
+      '      <div class="field"><label>50kg MAX</label><input id="f_m50" type="number" value="0"></div>' +
+      '    </div>' +
+      '    <div class="field"><label>備考</label><input id="f_note"></div>' +
+      '    <div id="modalError" class="error-text"></div>' +
+      '    <div class="modal-actions">' +
+      '      <button class="secondary" id="modalCancel">キャンセル</button>' +
+      '      <button id="modalSave">登録</button>' +
+      '    </div>' +
+      '  </div>' +
+      '</div>';
+
+    document.getElementById('modalRoot').innerHTML = html;
+    document.getElementById('modalCancel').addEventListener('click', closeModal);
+
+    document.getElementById('modalSave').addEventListener('click', function () {
+      var data = {
+        no: document.getElementById('f_no').value.trim(),
+        name: document.getElementById('f_name').value,
+        position: document.getElementById('f_position').value,
+        a20: document.getElementById('f_a20').value,
+        m20: document.getElementById('f_m20').value,
+        a30: document.getElementById('f_a30').value,
+        m30: document.getElementById('f_m30').value,
+        a50: document.getElementById('f_a50').value,
+        m50: document.getElementById('f_m50').value,
+        note: document.getElementById('f_note').value
+      };
+
+      if (!data.no) {
+        document.getElementById('modalError').textContent = '番号は必須です';
+        return;
+      }
+
+      var btn = document.getElementById('modalSave');
+      btn.disabled = true;
+
+      google.script.run
+        .withSuccessHandler(function () {
+          closeModal();
+          search();
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          document.getElementById('modalError').textContent = err.message || String(err);
+        })
+        .addLocation(data);
+    });
+  }
+
+  function closeModal() {
+    document.getElementById('modalRoot').innerHTML = '';
+  }
+
+  function showTopError(err) {
+    alert('エラー: ' + (err.message || String(err)));
+  }
+
+  function numAttr(v) {
+    return (v === null || v === undefined || v === '') ? 0 : v;
+  }
+
+  function escapeHtml(v) {
+    if (v === null || v === undefined) return '';
+    return String(v)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function escapeAttr(v) {
+    if (v === null || v === undefined) return '';
+    return String(v)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+</script>

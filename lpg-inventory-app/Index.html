@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Stylesheet'); ?>
+</head>
+<body>
+  <h1>LPG容器 屋外置場 在庫管理</h1>
+
+  <div class="toolbar">
+    <input id="keyword" type="text" placeholder="番号・置場名・位置・備考で検索">
+    <label class="checkbox">
+      <input id="onlyNearFull" type="checkbox">
+      満杯に近い置場のみ(80%以上)
+    </label>
+    <button id="searchBtn">検索</button>
+    <div class="spacer"></div>
+    <button id="addBtn">＋ 新規置場登録</button>
+  </div>
+
+  <div class="table-wrap">
+    <table id="table">
+      <thead>
+        <tr>
+          <th>番号</th>
+          <th>置場名</th>
+          <th>位置</th>
+          <th>20kg (実績/MAX)</th>
+          <th>30kg (実績/MAX)</th>
+          <th>50kg (実績/MAX)</th>
+          <th>備考</th>
+          <th>更新日時</th>
+          <th>更新者</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div id="emptyMsg" class="empty" style="display:none;">該当する置場がありません</div>
+  </div>
+
+  <div id="modalRoot"></div>
+
+  <?!= include('JavaScript'); ?>
+</body>
+</html>
