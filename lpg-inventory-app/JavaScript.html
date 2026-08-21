@@ -168,16 +168,6 @@
     { x1: 3061.0, y1: 2466.8, x2: 3061.0, y2: 2670.6 }
   ];
 
-  // 敷地の凹凸のある境界付近(図面上は自由図形)。破線の目安枠として表示。
-  var SITE_BOUNDARY_ZONES = [
-    { x: 1118.6, y: 7048.5, w: 2247.0, h: 2622.8 },
-    { x: 832.8, y: 1447.8, w: 2428.9, h: 609.6 },
-    { x: 2766.4, y: 866.8, w: 1295.4, h: 676.3 },
-    { x: 3414.1, y: 1533.5, w: 3105.2, h: 247.7 },
-    { x: 6500.2, y: 57.1, w: 4772.0, h: 1647.8 },
-    { x: 11262.7, y: 0.0, w: 3152.8, h: 57.1 }
-  ];
-
   // 置場番号(no) -> 敷地図上の座標(建屋と同じEMU/1000スケール)。建屋名との対応が確認できたものだけをここに置く。
   // 大型製缶(⑦-1/⑦-2/⑧/⑨)と西製品倉庫(⑭/㉔)は同じ建屋を共有するため、建屋の幅の中で少しずらして配置。
   var LOCATION_MARKER_POS = {
@@ -213,16 +203,6 @@
     boundary.setAttribute('width', SITE_BOUNDARY.w);
     boundary.setAttribute('height', SITE_BOUNDARY.h);
     svg.appendChild(boundary);
-
-    SITE_BOUNDARY_ZONES.forEach(function (z) {
-      var zone = document.createElementNS(svgNS, 'rect');
-      zone.setAttribute('class', 'site-boundary-zone');
-      zone.setAttribute('x', z.x);
-      zone.setAttribute('y', z.y);
-      zone.setAttribute('width', z.w);
-      zone.setAttribute('height', z.h);
-      svg.appendChild(zone);
-    });
 
     SITE_LINES.forEach(function (l) {
       var line = document.createElementNS(svgNS, 'line');
