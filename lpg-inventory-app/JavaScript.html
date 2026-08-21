@@ -42,7 +42,7 @@
 
   function renderCurrentView() {
     if (viewMode === 'map') {
-      renderMap(lastRecords);
+      renderSiteMap(lastRecords);
     } else {
       renderTable(lastRecords);
     }
@@ -102,43 +102,117 @@
     );
   }
 
-  function directionGroup(position) {
-    position = position || '';
-    var order = ['北', '南', '東', '西'];
-    for (var i = 0; i < order.length; i++) {
-      if (position.indexOf(order[i]) !== -1) {
-        return order[i];
-      }
-    }
-    return 'その他';
-  }
+  // 神鋼機器工業様の敷地配置図(Excel図面)から抽出した建屋の位置(0-1000スケール)。背景の参考表示。
+  var SITE_BUILDINGS = [
+    { name: '新事務所', x: 464, y: 714, w: 36, h: 86 },
+    { name: '大型製缶工場', x: 500, y: 414, w: 71, h: 29 },
+    { name: '保全工場', x: 357, y: 543, w: 36, h: 14 },
+    { name: '特殊製缶工場', x: 357, y: 243, w: 71, h: 29 },
+    { name: '製品第三倉庫', x: 357, y: 600, w: 71, h: 14 },
+    { name: '製品第二倉庫', x: 357, y: 571, w: 71, h: 29 },
+    { name: '酸洗工場', x: 179, y: 414, w: 36, h: 29 },
+    { name: '北作業場', x: 107, y: 371, w: 36, h: 29 },
+    { name: '水処理', x: 107, y: 443, w: 36, h: 14 },
+    { name: '50ｋｇ容器工場', x: 143, y: 557, w: 107, h: 29 },
+    { name: '特殊容器工場', x: 214, y: 386, w: 107, h: 29 },
+    { name: '20ｋｇ容器工場', x: 250, y: 700, w: 107, h: 29 },
+    { name: '守衛室', x: 893, y: 614, w: 36, h: 29 },
+    { name: '検収倉庫', x: 821, y: 714, w: 36, h: 29 },
+    { name: '大型仕上工場', x: 714, y: 557, w: 71, h: 43 },
+    { name: '塗装工場', x: 857, y: 443, w: 36, h: 129 },
+    { name: '小型検査工場', x: 821, y: 429, w: 20, h: 100 },
+    { name: '工作工場', x: 750, y: 414, w: 20, h: 71 },
+    { name: '大型検査工場', x: 714, y: 314, w: 107, h: 29 },
+    { name: '班長室', x: 571, y: 329, w: 36, h: 14 },
+    { name: '20ｋｇ容器工場', x: 286, y: 800, w: 107, h: 29 },
+    { name: 'アーム工場', x: 571, y: 214, w: 71, h: 29 },
+    { name: '電気', x: 536, y: 86, w: 36, h: 29 },
+    { name: '焼却炉', x: 143, y: 400, w: 36, h: 14 },
+    { name: '材料・容器置場', x: 893, y: 257, w: 36, h: 43 },
+    { name: '北製品倉庫Ａ・Ｂ', x: 71, y: 214, w: 107, h: 29 },
+    { name: '第二原料倉庫', x: 714, y: 843, w: 36, h: 29 },
+    { name: 'コンテナ倉庫', x: 750, y: 871, w: 36, h: 29 },
+    { name: '北プラットホーム', x: 0, y: 443, w: 71, h: 14 },
+    { name: '西製品倉庫', x: 500, y: 957, w: 71, h: 29 },
+    { name: '第５倉庫', x: 786, y: 900, w: 36, h: 14 }
+  ];
 
-  function renderMap(records) {
-    var groups = { '北': [], '南': [], '東': [], '西': [], 'その他': [] };
+  // 置場番号(no) -> 敷地図上の座標。建屋名との対応が確認できたものだけをここに置く。
+  // 大型製缶(⑦-1/⑦-2/⑧/⑨)と西下屋(⑭/㉔)は同じ建屋を共有するため、周囲に少しずらして配置。
+  var LOCATION_MARKER_POS = {
+    '②': { x: 125, y: 450 },
+    '③': { x: 197, y: 572 },
+    '④': { x: 304, y: 715 },
+    '⑦-1': { x: 516, y: 419 },
+    '⑦-2': { x: 556, y: 419 },
+    '⑧': { x: 516, y: 439 },
+    '⑨': { x: 556, y: 439 },
+    '⑩': { x: 768, y: 886 },
+    '⑪': { x: 482, y: 757 },
+    '⑭': { x: 521, y: 972 },
+    '⑱': { x: 875, y: 508 },
+    '㉑': { x: 839, y: 729 },
+    '㉒': { x: 393, y: 607 },
+    '㉔': { x: 551, y: 972 },
+    '㉖': { x: 393, y: 586 },
+    '㉘': { x: 340, y: 815 },
+    '㉚': { x: 760, y: 450 },
+    '㉛': { x: 750, y: 579 }
+  };
 
-    records.forEach(function (r) {
-      groups[directionGroup(r.position)].push(r);
+  function renderSiteMap(records) {
+    var svg = document.getElementById('siteMapSvg');
+    var svgNS = 'http://www.w3.org/2000/svg';
+    svg.innerHTML = '';
+
+    SITE_BUILDINGS.forEach(function (b) {
+      var rect = document.createElementNS(svgNS, 'rect');
+      rect.setAttribute('class', 'site-building-rect');
+      rect.setAttribute('x', b.x);
+      rect.setAttribute('y', b.y);
+      rect.setAttribute('width', b.w);
+      rect.setAttribute('height', b.h);
+      svg.appendChild(rect);
+
+      var text = document.createElementNS(svgNS, 'text');
+      text.setAttribute('class', 'site-building-label');
+      text.setAttribute('x', b.x + b.w / 2);
+      text.setAttribute('y', b.y + b.h / 2);
+      text.setAttribute('dominant-baseline', 'central');
+      text.textContent = b.name;
+      svg.appendChild(text);
     });
 
-    var containers = {
-      '北': document.getElementById('mapNorth'),
-      '南': document.getElementById('mapSouth'),
-      '東': document.getElementById('mapEast'),
-      '西': document.getElementById('mapWest'),
-      'その他': document.getElementById('mapCenter')
-    };
+    var unmatchedContainer = document.getElementById('unmatchedCards');
+    unmatchedContainer.innerHTML = '';
 
-    Object.keys(containers).forEach(function (key) {
-      var container = containers[key];
-      container.innerHTML = '';
+    records.forEach(function (r) {
+      var pos = LOCATION_MARKER_POS[r.no];
+      var pct = maxUtilizationPct(r);
+      var levelClass = 'level-empty';
+      if (pct !== null) {
+        levelClass = pct >= 100 ? 'level-over' : (pct >= 80 ? 'level-warn' : 'level-ok');
+      }
 
-      groups[key].forEach(function (r) {
-        var pct = maxUtilizationPct(r);
-        var levelClass = 'level-empty';
-        if (pct !== null) {
-          levelClass = pct >= 100 ? 'level-over' : (pct >= 80 ? 'level-warn' : 'level-ok');
-        }
+      if (pos) {
+        var g = document.createElementNS(svgNS, 'g');
+        g.setAttribute('class', 'site-marker ' + levelClass);
 
+        var circle = document.createElementNS(svgNS, 'circle');
+        circle.setAttribute('cx', pos.x);
+        circle.setAttribute('cy', pos.y);
+        circle.setAttribute('r', 20);
+        g.appendChild(circle);
+
+        var label = document.createElementNS(svgNS, 'text');
+        label.setAttribute('x', pos.x);
+        label.setAttribute('y', pos.y);
+        label.textContent = r.no;
+        g.appendChild(label);
+
+        g.addEventListener('click', function () { openEditModal(r); });
+        svg.appendChild(g);
+      } else {
         var card = document.createElement('div');
         card.className = 'map-card ' + levelClass;
         card.innerHTML =
@@ -147,12 +221,9 @@
           '<div class="map-pct">' + (pct === null ? '-' : pct + '%') + '</div>';
 
         card.addEventListener('click', function () { openEditModal(r); });
-        container.appendChild(card);
-      });
+        unmatchedContainer.appendChild(card);
+      }
     });
-
-    var emptyMsg = document.getElementById('mapEmptyMsg');
-    emptyMsg.style.display = records.length ? 'none' : 'block';
   }
 
   function maxUtilizationPct(r) {

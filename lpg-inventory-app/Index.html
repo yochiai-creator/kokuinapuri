@@ -17,7 +17,7 @@
     <button id="searchBtn">検索</button>
     <div class="view-toggle">
       <button id="viewListBtn" class="toggle-btn active">一覧表示</button>
-      <button id="viewMapBtn" class="toggle-btn">配置図表示</button>
+      <button id="viewMapBtn" class="toggle-btn">敷地レイアウト表示</button>
     </div>
     <div class="spacer"></div>
     <button id="addBtn">＋ 新規置場登録</button>
@@ -45,15 +45,14 @@
   </div>
 
   <div id="mapView" class="map-wrap" style="display:none;">
-    <p class="hint">※ 実際の敷地配置とは異なります。「位置」欄の方位(北・南・東・西)ごとにグループ化した模式図です。カードをクリックすると編集できます。</p>
-    <div class="map-grid">
-      <div class="map-section north"><h3>北</h3><div class="map-cards" id="mapNorth"></div></div>
-      <div class="map-section west"><h3>西</h3><div class="map-cards" id="mapWest"></div></div>
-      <div class="map-section center"><h3>その他・屋内</h3><div class="map-cards" id="mapCenter"></div></div>
-      <div class="map-section east"><h3>東</h3><div class="map-cards" id="mapEast"></div></div>
-      <div class="map-section south"><h3>南</h3><div class="map-cards" id="mapSouth"></div></div>
+    <p class="hint">※ 実際の敷地図(建屋配置)を元にした模式図です。灰色の四角は建屋、色付きの丸が置場です。丸をクリックすると編集できます。</p>
+    <div class="site-map-scroll">
+      <svg id="siteMapSvg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet"></svg>
     </div>
-    <div id="mapEmptyMsg" class="empty" style="display:none;">該当する置場がありません</div>
+    <div id="unmatchedWrap">
+      <h3 class="unmatched-title">この図には配置されていない置場</h3>
+      <div class="map-cards" id="unmatchedCards"></div>
+    </div>
   </div>
 
   <div id="modalRoot"></div>
