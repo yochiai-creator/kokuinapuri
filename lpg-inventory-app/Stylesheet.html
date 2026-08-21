@@ -72,6 +72,27 @@
     color: var(--muted);
   }
 
+  .view-toggle {
+    display: flex;
+    gap: 4px;
+    background: #eef1f5;
+    border-radius: 8px;
+    padding: 3px;
+  }
+
+  .toggle-btn {
+    background: transparent;
+    color: var(--muted);
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
+  .toggle-btn.active {
+    background: #fff;
+    color: var(--text);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+  }
+
   table {
     width: 100%;
     border-collapse: collapse;
@@ -220,5 +241,95 @@
 
   .util-empty {
     color: var(--muted);
+  }
+
+  .map-wrap {
+    background: var(--card);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  }
+
+  .map-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.6fr 1fr;
+    grid-template-areas:
+      ".    north .   "
+      "west center east"
+      ".    south .   ";
+    gap: 12px;
+  }
+
+  .map-section {
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    min-height: 90px;
+  }
+
+  .map-section.north { grid-area: north; }
+  .map-section.south { grid-area: south; }
+  .map-section.east { grid-area: east; }
+  .map-section.west { grid-area: west; }
+  .map-section.center { grid-area: center; }
+
+  .map-section h3 {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    font-weight: 600;
+  }
+
+  .map-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .map-card {
+    width: 108px;
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    background: #fff;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .map-card .map-no {
+    font-weight: 700;
+  }
+
+  .map-card .map-name {
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .map-card .map-pct {
+    margin-top: 6px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .map-card.level-ok { background: #eaf6ec; border-color: #bfe3c6; }
+  .map-card.level-warn { background: #fff4e0; border-color: #f5cf8a; }
+  .map-card.level-over { background: #fdecea; border-color: #f3b3ac; }
+  .map-card.level-empty { background: #f5f6f8; color: var(--muted); }
+
+  @media (max-width: 640px) {
+    .map-grid {
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "north"
+        "west"
+        "center"
+        "east"
+        "south";
+    }
   }
 </style>
