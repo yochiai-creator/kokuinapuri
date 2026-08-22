@@ -163,6 +163,16 @@
     { x1: 9461.3, y1: 11398.1, x2: 13634.4, y2: 12072.7 }
   ];
 
+  // 新事務所付近の構内道路(ループ状のターン部分)。原本図面(PDF)のベクター座標を実測して変換したもの。
+  var SITE_ROAD_LOOP = [
+    { x: 9136.9, y: 7000.2 }, { x: 10024.4, y: 7498.7 }, { x: 10730.0, y: 8012.4 },
+    { x: 11473.1, y: 8676.3 }, { x: 10983.3, y: 9501.3 }, { x: 10534.8, y: 10302.3 },
+    { x: 10214.0, y: 10202.2 }, { x: 10168.9, y: 10237.0 }, { x: 8866.7, y: 9964.9 },
+    { x: 8889.2, y: 9268.4 }, { x: 8847.9, y: 8745.9 }, { x: 8806.6, y: 8147.3 },
+    { x: 9018.6, y: 8036.3 }, { x: 9028.0, y: 7836.1 }, { x: 9043.0, y: 7509.5 },
+    { x: 9136.9, y: 7000.2 }
+  ];
+
   // 敷地境界(フェンス)のうち、矩形の SITE_BOUNDARY では表せない実際の折れ線部分。
   var SITE_FENCE_LINES = [
     { x1: 1042.4, y1: 4343.4, x2: 1061.4, y2: 7067.6 },
@@ -247,6 +257,20 @@
       roadMark.setAttribute('y2', l.y2);
       svg.appendChild(roadMark);
     });
+
+    var loopPoints = SITE_ROAD_LOOP.map(function (p) { return p.x + ',' + p.y; }).join(' ');
+
+    var loopRoad = document.createElementNS(svgNS, 'polyline');
+    loopRoad.setAttribute('class', 'site-road-line');
+    loopRoad.setAttribute('points', loopPoints);
+    loopRoad.setAttribute('fill', 'none');
+    svg.appendChild(loopRoad);
+
+    var loopRoadMark = document.createElementNS(svgNS, 'polyline');
+    loopRoadMark.setAttribute('class', 'site-road-line-mark');
+    loopRoadMark.setAttribute('points', loopPoints);
+    loopRoadMark.setAttribute('fill', 'none');
+    svg.appendChild(loopRoadMark);
 
     SITE_UNLABELED.forEach(function (u) {
       var rect = document.createElementNS(svgNS, 'rect');
