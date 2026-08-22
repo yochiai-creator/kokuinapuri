@@ -298,15 +298,34 @@
         var g = document.createElementNS(svgNS, 'g');
         g.setAttribute('class', 'site-marker ' + levelClass);
 
+        var pinR = 165;
+        var bubbleCy = pos.y - pinR * 1.5;
+
+        var shadow = document.createElementNS(svgNS, 'ellipse');
+        shadow.setAttribute('class', 'site-marker-shadow');
+        shadow.setAttribute('cx', pos.x);
+        shadow.setAttribute('cy', pos.y + 14);
+        shadow.setAttribute('rx', pinR * 0.5);
+        shadow.setAttribute('ry', pinR * 0.2);
+        g.appendChild(shadow);
+
+        var tail = document.createElementNS(svgNS, 'polygon');
+        tail.setAttribute('points',
+          (pos.x - pinR * 0.55) + ',' + (bubbleCy + pinR * 0.7) + ' ' +
+          (pos.x + pinR * 0.55) + ',' + (bubbleCy + pinR * 0.7) + ' ' +
+          pos.x + ',' + pos.y
+        );
+        g.appendChild(tail);
+
         var circle = document.createElementNS(svgNS, 'circle');
         circle.setAttribute('cx', pos.x);
-        circle.setAttribute('cy', pos.y);
-        circle.setAttribute('r', 175);
+        circle.setAttribute('cy', bubbleCy);
+        circle.setAttribute('r', pinR);
         g.appendChild(circle);
 
         var label = document.createElementNS(svgNS, 'text');
         label.setAttribute('x', pos.x);
-        label.setAttribute('y', pos.y);
+        label.setAttribute('y', bubbleCy);
         label.textContent = r.no;
         g.appendChild(label);
 

@@ -35,17 +35,37 @@
     margin-bottom: 20px;
   }
 
+  .app-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+
+  .app-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(43, 110, 242, 0.35);
+    flex-shrink: 0;
+  }
+
   .app-header-text h1 {
     font-size: 21px;
     font-weight: 700;
-    margin: 0 0 4px;
+    margin: 0;
     letter-spacing: -0.01em;
   }
 
   .app-subtitle {
     font-size: 13px;
     color: var(--muted);
-    margin: 0;
+    margin: 0 0 0 42px;
   }
 
   button {
@@ -408,46 +428,48 @@
   }
 
   .site-ground-rect {
-    fill: #eef2ea;
+    fill: #dbead2;
   }
 
   .site-boundary-rect {
-    fill: #f6f3e9;
-    stroke: #b8ab8c;
-    stroke-width: 32;
+    fill: #eee6c8;
+    stroke: #ab9a63;
+    stroke-width: 26;
+    stroke-dasharray: 70 50;
   }
 
   .site-fence-line {
-    stroke: #b8ab8c;
+    stroke: #ab9a63;
     stroke-width: 20;
-    stroke-dasharray: 60 40;
+    stroke-dasharray: 70 50;
     fill: none;
   }
 
   .site-road-line {
-    stroke: #9aa1ac;
+    stroke: #7c8798;
     stroke-width: 340;
     stroke-linecap: round;
   }
 
   .site-road-line-mark {
-    stroke: #f5f0e0;
-    stroke-width: 24;
-    stroke-dasharray: 90 90;
+    stroke: #fbfaf5;
+    stroke-width: 26;
+    stroke-dasharray: 100 100;
     stroke-linecap: round;
+    opacity: 0.9;
   }
 
   .site-unlabeled-rect {
-    fill: #d7dce3;
-    stroke: #969fac;
+    fill: #c9d6e8;
+    stroke: #7c8ea8;
     stroke-width: 10;
   }
 
   .site-building-rect {
-    fill: #dde2ea;
-    stroke: #7d8794;
-    stroke-width: 18;
-    filter: drop-shadow(0 10px 14px rgba(30, 41, 59, 0.16));
+    fill: #ffffff;
+    stroke: #45566e;
+    stroke-width: 22;
+    filter: drop-shadow(0 12px 16px rgba(30, 41, 59, 0.22));
   }
 
   .site-building-label {
@@ -458,26 +480,35 @@
     pointer-events: none;
   }
 
-  .site-marker circle {
+  .site-marker-shadow {
+    fill: rgba(16, 24, 40, 0.28);
+  }
+
+  .site-marker circle,
+  .site-marker polygon {
     stroke: #fff;
-    stroke-width: 16;
+    stroke-width: 14;
     cursor: pointer;
-    filter: drop-shadow(0 2px 4px rgba(16, 24, 40, 0.25));
+    filter: drop-shadow(0 6px 8px rgba(16, 24, 40, 0.3));
+  }
+
+  .site-marker polygon {
+    stroke: none;
   }
 
   .site-marker text {
     fill: #fff;
-    font-size: 150px;
+    font-size: 140px;
     font-weight: 700;
     text-anchor: middle;
     dominant-baseline: central;
     pointer-events: none;
   }
 
-  .site-marker.level-ok circle { fill: var(--ok); }
-  .site-marker.level-warn circle { fill: var(--warn); }
-  .site-marker.level-over circle { fill: var(--danger); }
-  .site-marker.level-empty circle { fill: var(--muted-light); }
+  .site-marker.level-ok circle, .site-marker.level-ok polygon { fill: var(--ok); }
+  .site-marker.level-warn circle, .site-marker.level-warn polygon { fill: var(--warn); }
+  .site-marker.level-over circle, .site-marker.level-over polygon { fill: var(--danger); }
+  .site-marker.level-empty circle, .site-marker.level-empty polygon { fill: var(--muted-light); }
 
   .unmatched-title {
     font-size: 13px;
