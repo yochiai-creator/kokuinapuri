@@ -156,16 +156,20 @@
     { x: 12248.8, y: 4141.1, w: 214.8, h: 183.0 }
   ];
 
-  // 道路・フェンス・敷地境界の縁取りなど、図面上の線。
-  var SITE_LINES = [
+  // 図面上の実際の通路(西製品倉庫の脇を通る構内道路)。図面ではグレーの帯として描かれている。
+  var SITE_ROAD_LINES = [
+    { x1: 3365.6, y1: 9667.0, x2: 9461.3, y2: 11401.4 },
+    { x1: 9491.0, y1: 11077.6, x2: 9433.9, y2: 11249.0 },
+    { x1: 9461.3, y1: 11398.1, x2: 13634.4, y2: 12072.7 }
+  ];
+
+  // 敷地境界(フェンス)のうち、矩形の SITE_BOUNDARY では表せない実際の折れ線部分。
+  var SITE_FENCE_LINES = [
     { x1: 1042.4, y1: 4343.4, x2: 1061.4, y2: 7067.6 },
     { x1: 890.0, y1: 4200.5, x2: 1137.6, y2: 4362.4 },
     { x1: 794.7, y1: 2495.6, x2: 851.9, y2: 3657.6 },
     { x1: 851.9, y1: 3657.6, x2: 1137.6, y2: 3857.6 },
     { x1: 804.2, y1: 2057.4, x2: 832.8, y2: 2505.1 },
-    { x1: 3365.6, y1: 9667.0, x2: 9461.3, y2: 11401.4 },
-    { x1: 9491.0, y1: 11077.6, x2: 9433.9, y2: 11249.0 },
-    { x1: 9461.3, y1: 11398.1, x2: 13634.4, y2: 12072.7 },
     { x1: 14396.4, y1: 19.1, x2: 16644.3, y2: 5305.4 },
     { x1: 15501.3, y1: 5295.9, x2: 16672.9, y2: 7991.5 },
     { x1: 13695.5, y1: 8305.8, x2: 15444.2, y2: 12061.5 },
@@ -216,14 +220,32 @@
     boundary.setAttribute('height', SITE_BOUNDARY.h);
     svg.appendChild(boundary);
 
-    SITE_LINES.forEach(function (l) {
-      var line = document.createElementNS(svgNS, 'line');
-      line.setAttribute('class', 'site-road-line');
-      line.setAttribute('x1', l.x1);
-      line.setAttribute('y1', l.y1);
-      line.setAttribute('x2', l.x2);
-      line.setAttribute('y2', l.y2);
-      svg.appendChild(line);
+    SITE_FENCE_LINES.forEach(function (l) {
+      var fence = document.createElementNS(svgNS, 'line');
+      fence.setAttribute('class', 'site-fence-line');
+      fence.setAttribute('x1', l.x1);
+      fence.setAttribute('y1', l.y1);
+      fence.setAttribute('x2', l.x2);
+      fence.setAttribute('y2', l.y2);
+      svg.appendChild(fence);
+    });
+
+    SITE_ROAD_LINES.forEach(function (l) {
+      var road = document.createElementNS(svgNS, 'line');
+      road.setAttribute('class', 'site-road-line');
+      road.setAttribute('x1', l.x1);
+      road.setAttribute('y1', l.y1);
+      road.setAttribute('x2', l.x2);
+      road.setAttribute('y2', l.y2);
+      svg.appendChild(road);
+
+      var roadMark = document.createElementNS(svgNS, 'line');
+      roadMark.setAttribute('class', 'site-road-line-mark');
+      roadMark.setAttribute('x1', l.x1);
+      roadMark.setAttribute('y1', l.y1);
+      roadMark.setAttribute('x2', l.x2);
+      roadMark.setAttribute('y2', l.y2);
+      svg.appendChild(roadMark);
     });
 
     SITE_UNLABELED.forEach(function (u) {
