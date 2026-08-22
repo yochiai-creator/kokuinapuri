@@ -209,6 +209,64 @@
     '㉛': { x: 12615.2, y: 6924.7 }
   };
 
+  function classifyBuilding_(name) {
+    if (name.indexOf('倉庫') !== -1 || name.indexOf('置場') !== -1) return 'bldg-warehouse';
+    if (name.indexOf('事務所') !== -1 || name.indexOf('室') !== -1) return 'bldg-office';
+    return 'bldg-factory';
+  }
+
+  function pointFarFromRect_(px, py, rect, pad) {
+    return px < rect.x - pad || px > rect.x + rect.w + pad || py < rect.y - pad || py > rect.y + rect.h + pad;
+  }
+
+  function distToSegment_(px, py, x1, y1, x2, y2) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var lenSq = dx * dx + dy * dy;
+    var t = lenSq ? ((px - x1) * dx + (py - y1) * dy) / lenSq : 0;
+    t = Math.max(0, Math.min(1, t));
+    var cx = x1 + t * dx, cy = y1 + t * dy;
+    return Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+  }
+
+  // 建屋・道路と重ならない場所を自動で探して、装飾用の植栽(木)を配置する。
+  function computeTreePositions_() {
+    var trees = [];
+    var margin = 450;
+    var step = 1500;
+    var minX = SITE_BOUNDARY.x + margin;
+    var maxX = SITE_BOUNDARY.x + SITE_BOUNDARY.w - margin;
+    var minY = SITE_BOUNDARY.y + margin;
+    var maxY = SITE_BOUNDARY.y + SITE_BOUNDARY.h - margin;
+
+    var rowIndex = 0;
+    for (var y = minY; y <= maxY; y += step, rowIndex++) {
+      var xOffset = (rowIndex % 2 === 0) ? 0 : step / 2;
+      for (var x = minX + xOffset; x <= maxX; x += step) {
+        var ok = true;
+
+        for (var i = 0; ok && i < SITE_BUILDINGS.length; i++) {
+          if (!pointFarFromRect_(x, y, SITE_BUILDINGS[i], 260)) ok = false;
+        }
+        for (var i = 0; ok && i < SITE_UNLABELED.length; i++) {
+          if (!pointFarFromRect_(x, y, SITE_UNLABELED[i], 200)) ok = false;
+        }
+        for (var i = 0; ok && i < SITE_ROAD_LINES.length; i++) {
+          var l = SITE_ROAD_LINES[i];
+          if (distToSegment_(x, y, l.x1, l.y1, l.x2, l.y2) < 320) ok = false;
+        }
+        for (var i = 0; ok && i < SITE_ROAD_LOOP.length - 1; i++) {
+          var p1 = SITE_ROAD_LOOP[i], p2 = SITE_ROAD_LOOP[i + 1];
+          if (distToSegment_(x, y, p1.x, p1.y, p2.x, p2.y) < 320) ok = false;
+        }
+
+        if (ok) {
+          trees.push({ x: x, y: y });
+        }
+      }
+    }
+    return trees;
+  }
+
   function renderSiteMap(records) {
     var svg = document.getElementById('siteMapSvg');
     var svgNS = 'http://www.w3.org/2000/svg';
@@ -283,13 +341,24 @@
     });
 
     SITE_BUILDINGS.forEach(function (b) {
+      var category = classifyBuilding_(b.name);
+
       var rect = document.createElementNS(svgNS, 'rect');
-      rect.setAttribute('class', 'site-building-rect');
+      rect.setAttribute('class', 'site-building-rect ' + category);
       rect.setAttribute('x', b.x);
       rect.setAttribute('y', b.y);
       rect.setAttribute('width', b.w);
       rect.setAttribute('height', b.h);
       svg.appendChild(rect);
+
+      var roofH = Math.min(b.h * 0.24, 130);
+      var roof = document.createElementNS(svgNS, 'rect');
+      roof.setAttribute('class', 'site-roof ' + category);
+      roof.setAttribute('x', b.x);
+      roof.setAttribute('y', b.y);
+      roof.setAttribute('width', b.w);
+      roof.setAttribute('height', roofH);
+      svg.appendChild(roof);
 
       var cx = b.x + b.w / 2;
       var cy = b.y + b.h / 2;
@@ -305,6 +374,22 @@
       }
       text.textContent = b.name;
       svg.appendChild(text);
+    });
+
+    computeTreePositions_().forEach(function (t) {
+      var trunk = document.createElementNS(svgNS, 'circle');
+      trunk.setAttribute('class', 'site-tree-shadow');
+      trunk.setAttribute('cx', t.x);
+      trunk.setAttribute('cy', t.y + 30);
+      trunk.setAttribute('r', 130);
+      svg.appendChild(trunk);
+
+      var canopy = document.createElementNS(svgNS, 'circle');
+      canopy.setAttribute('class', 'site-tree');
+      canopy.setAttribute('cx', t.x);
+      canopy.setAttribute('cy', t.y);
+      canopy.setAttribute('r', 130);
+      svg.appendChild(canopy);
     });
 
     var unmatchedContainer = document.getElementById('unmatchedCards');
