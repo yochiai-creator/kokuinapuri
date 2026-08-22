@@ -200,6 +200,14 @@
     var svgNS = 'http://www.w3.org/2000/svg';
     svg.innerHTML = '';
 
+    var ground = document.createElementNS(svgNS, 'rect');
+    ground.setAttribute('class', 'site-ground-rect');
+    ground.setAttribute('x', -300);
+    ground.setAttribute('y', -300);
+    ground.setAttribute('width', 17300);
+    ground.setAttribute('height', 12700);
+    svg.appendChild(ground);
+
     var boundary = document.createElementNS(svgNS, 'rect');
     boundary.setAttribute('class', 'site-boundary-rect');
     boundary.setAttribute('x', SITE_BOUNDARY.x);
