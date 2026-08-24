@@ -233,13 +233,6 @@
     { x: 12248.8, y: 4141.1, w: 214.8, h: 183.0 }
   ];
 
-  // 図面上の実際の通路(西製品倉庫の脇を通る構内道路)。図面ではグレーの帯として描かれている。
-  var SITE_ROAD_LINES = [
-    { x1: 3365.6, y1: 9667.0, x2: 9461.3, y2: 11401.4 },
-    { x1: 9491.0, y1: 11077.6, x2: 9433.9, y2: 11249.0 },
-    { x1: 9461.3, y1: 11398.1, x2: 13634.4, y2: 12072.7 }
-  ];
-
   // 新事務所付近の池。原本図面(PDF)のベクター座標を実測して変換したもの。
   var SITE_POND = [
     { x: 9136.9, y: 7000.2 }, { x: 10024.4, y: 7498.7 }, { x: 10730.0, y: 8012.4 },
@@ -303,24 +296,6 @@
     boundary.setAttribute('class', 'site-boundary-rect');
     boundary.setAttribute('points', SITE_BOUNDARY.map(function (p) { return p.x + ',' + p.y; }).join(' '));
     svg.appendChild(boundary);
-
-    SITE_ROAD_LINES.forEach(function (l) {
-      var road = document.createElementNS(svgNS, 'line');
-      road.setAttribute('class', 'site-road-line');
-      road.setAttribute('x1', l.x1);
-      road.setAttribute('y1', l.y1);
-      road.setAttribute('x2', l.x2);
-      road.setAttribute('y2', l.y2);
-      svg.appendChild(road);
-
-      var roadMark = document.createElementNS(svgNS, 'line');
-      roadMark.setAttribute('class', 'site-road-line-mark');
-      roadMark.setAttribute('x1', l.x1);
-      roadMark.setAttribute('y1', l.y1);
-      roadMark.setAttribute('x2', l.x2);
-      roadMark.setAttribute('y2', l.y2);
-      svg.appendChild(roadMark);
-    });
 
     var pond = document.createElementNS(svgNS, 'polygon');
     pond.setAttribute('class', 'site-pond');
