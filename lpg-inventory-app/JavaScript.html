@@ -2,6 +2,7 @@
   var SIZE_KEYS = ['20', '30', '50'];
   var viewMode = 'list';
   var lastRecords = [];
+  var placementEditMode = false;
 
   document.addEventListener('DOMContentLoaded', function () {
     search();
@@ -14,7 +15,19 @@
     document.getElementById('onlyNearFull').addEventListener('change', search);
     document.getElementById('viewListBtn').addEventListener('click', function () { setViewMode('list'); });
     document.getElementById('viewMapBtn').addEventListener('click', function () { setViewMode('map'); });
+    document.getElementById('placementEditBtn').addEventListener('click', togglePlacementEditMode);
   });
+
+  function togglePlacementEditMode() {
+    placementEditMode = !placementEditMode;
+    var btn = document.getElementById('placementEditBtn');
+    btn.textContent = placementEditMode ? '配置編集中(タップして終了)' : '配置を編集';
+    btn.classList.toggle('primary-btn', placementEditMode);
+    document.getElementById('mapLegendHint').textContent = placementEditMode
+      ? '丸をドラッグすると位置を保存します。'
+      : '灰色の四角は建屋の参考位置です。丸をクリックすると編集できます。';
+    renderCurrentView();
+  }
 
   function setViewMode(mode) {
     viewMode = mode;
@@ -279,6 +292,119 @@
     return 'bldg-factory';
   }
 
+  var MARKER_PIN_R = 165;
+
+  // 置場番号(no) -> 地図上の座標。スプレッドシートに保存された座標(ユーザーがドラッグで調整したもの)を
+  // 優先し、無ければコード側の初期配置(LOCATION_MARKER_POS)を使う。
+  function resolveMarkerPos_(r) {
+    var x = Number(r.mapX);
+    var y = Number(r.mapY);
+    var hasSaved = r.mapX !== '' && r.mapX !== null && r.mapX !== undefined && !isNaN(x) &&
+      r.mapY !== '' && r.mapY !== null && r.mapY !== undefined && !isNaN(y);
+    if (hasSaved) {
+      return { x: x, y: y };
+    }
+    return LOCATION_MARKER_POS[r.no] || null;
+  }
+
+  function buildMarkerGroup_(svgNS, pos, levelClass) {
+    var g = document.createElementNS(svgNS, 'g');
+    g.setAttribute('class', 'site-marker ' + levelClass);
+
+    var shadow = document.createElementNS(svgNS, 'ellipse');
+    shadow.setAttribute('class', 'site-marker-shadow');
+    g.appendChild(shadow);
+
+    var tail = document.createElementNS(svgNS, 'polygon');
+    g.appendChild(tail);
+
+    var circle = document.createElementNS(svgNS, 'circle');
+    circle.setAttribute('r', MARKER_PIN_R);
+    g.appendChild(circle);
+
+    var label = document.createElementNS(svgNS, 'text');
+    g.appendChild(label);
+
+    positionMarkerGroup_(g, pos);
+    return g;
+  }
+
+  function positionMarkerGroup_(g, pos) {
+    var pinR = MARKER_PIN_R;
+    var bubbleCy = pos.y - pinR * 1.5;
+    var shadow = g.children[0], tail = g.children[1], circle = g.children[2], label = g.children[3];
+
+    shadow.setAttribute('cx', pos.x);
+    shadow.setAttribute('cy', pos.y + 14);
+    shadow.setAttribute('rx', pinR * 0.5);
+    shadow.setAttribute('ry', pinR * 0.2);
+
+    tail.setAttribute('points',
+      (pos.x - pinR * 0.55) + ',' + (bubbleCy + pinR * 0.7) + ' ' +
+      (pos.x + pinR * 0.55) + ',' + (bubbleCy + pinR * 0.7) + ' ' +
+      pos.x + ',' + pos.y
+    );
+
+    circle.setAttribute('cx', pos.x);
+    circle.setAttribute('cy', bubbleCy);
+
+    label.setAttribute('x', pos.x);
+    label.setAttribute('y', bubbleCy);
+  }
+
+  // 配置編集モード中に、マーカーをドラッグして位置を変更・保存できるようにする。
+  function attachMarkerDrag_(svg, g, r, initialPos) {
+    g.classList.add('site-marker-draggable');
+    var dragging = false;
+    var moved = false;
+    var currentPos = { x: initialPos.x, y: initialPos.y };
+
+    function toSvgPoint(evt) {
+      var pt = svg.createSVGPoint();
+      pt.x = evt.clientX;
+      pt.y = evt.clientY;
+      var ctm = svg.getScreenCTM();
+      if (!ctm) return currentPos;
+      var loc = pt.matrixTransform(ctm.inverse());
+      return { x: loc.x, y: loc.y };
+    }
+
+    g.addEventListener('pointerdown', function (evt) {
+      dragging = true;
+      moved = false;
+      g.setPointerCapture(evt.pointerId);
+      evt.preventDefault();
+    });
+
+    g.addEventListener('pointermove', function (evt) {
+      if (!dragging) return;
+      moved = true;
+      currentPos = toSvgPoint(evt);
+      positionMarkerGroup_(g, currentPos);
+    });
+
+    g.addEventListener('pointerup', function (evt) {
+      if (!dragging) return;
+      dragging = false;
+      g.releasePointerCapture(evt.pointerId);
+
+      if (!moved) {
+        openEditModal(r);
+        return;
+      }
+
+      var newX = Math.round(currentPos.x);
+      var newY = Math.round(currentPos.y);
+      r.mapX = newX;
+      r.mapY = newY;
+
+      google.script.run
+        .withSuccessHandler(function () {})
+        .withFailureHandler(showTopError)
+        .updateLocation(r.no, { mapX: newX, mapY: newY });
+    });
+  }
+
   function renderSiteMap(records) {
     var svg = document.getElementById('siteMapSvg');
     var svgNS = 'http://www.w3.org/2000/svg';
@@ -383,7 +509,7 @@
     unmatchedContainer.innerHTML = '';
 
     records.forEach(function (r) {
-      var pos = LOCATION_MARKER_POS[r.no];
+      var pos = resolveMarkerPos_(r);
       var pct = maxUtilizationPct(r);
       var levelClass = 'level-empty';
       if (pct !== null) {
@@ -391,41 +517,14 @@
       }
 
       if (pos) {
-        var g = document.createElementNS(svgNS, 'g');
-        g.setAttribute('class', 'site-marker ' + levelClass);
+        var g = buildMarkerGroup_(svgNS, pos, levelClass);
+        g.children[3].textContent = r.no;
 
-        var pinR = 165;
-        var bubbleCy = pos.y - pinR * 1.5;
-
-        var shadow = document.createElementNS(svgNS, 'ellipse');
-        shadow.setAttribute('class', 'site-marker-shadow');
-        shadow.setAttribute('cx', pos.x);
-        shadow.setAttribute('cy', pos.y + 14);
-        shadow.setAttribute('rx', pinR * 0.5);
-        shadow.setAttribute('ry', pinR * 0.2);
-        g.appendChild(shadow);
-
-        var tail = document.createElementNS(svgNS, 'polygon');
-        tail.setAttribute('points',
-          (pos.x - pinR * 0.55) + ',' + (bubbleCy + pinR * 0.7) + ' ' +
-          (pos.x + pinR * 0.55) + ',' + (bubbleCy + pinR * 0.7) + ' ' +
-          pos.x + ',' + pos.y
-        );
-        g.appendChild(tail);
-
-        var circle = document.createElementNS(svgNS, 'circle');
-        circle.setAttribute('cx', pos.x);
-        circle.setAttribute('cy', bubbleCy);
-        circle.setAttribute('r', pinR);
-        g.appendChild(circle);
-
-        var label = document.createElementNS(svgNS, 'text');
-        label.setAttribute('x', pos.x);
-        label.setAttribute('y', bubbleCy);
-        label.textContent = r.no;
-        g.appendChild(label);
-
-        g.addEventListener('click', function () { openEditModal(r); });
+        if (placementEditMode) {
+          attachMarkerDrag_(svg, g, r, pos);
+        } else {
+          g.addEventListener('click', function () { openEditModal(r); });
+        }
         svg.appendChild(g);
       } else {
         var card = document.createElement('div');

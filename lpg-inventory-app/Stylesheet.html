@@ -496,6 +496,15 @@
     fill: rgba(16, 24, 40, 0.28);
   }
 
+  .site-marker-draggable {
+    touch-action: none;
+  }
+
+  .site-marker-draggable circle,
+  .site-marker-draggable polygon {
+    cursor: move;
+  }
+
   .site-marker circle,
   .site-marker polygon {
     stroke: #fff;

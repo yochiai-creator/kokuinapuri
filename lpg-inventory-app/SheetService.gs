@@ -28,7 +28,9 @@ var COLUMNS = [
   { key: 'm50', label: '50kg_MAX' },
   { key: 'note', label: '備考' },
   { key: 'updatedAt', label: '更新日時' },
-  { key: 'updatedBy', label: '更新者' }
+  { key: 'updatedBy', label: '更新者' },
+  { key: 'mapX', label: '地図X' },
+  { key: 'mapY', label: '地図Y' }
 ];
 
 // 初回作成時の初期データ。既存の「容器置場可能数」表(2021/02時点)から取り込み。
@@ -109,9 +111,25 @@ function getSheet_() {
     if (seedRows.length) {
       sheet.getRange(2, 1, seedRows.length, headers.length).setValues(seedRows);
     }
+  } else {
+    ensureHeaderColumns_(sheet);
   }
 
   return sheet;
+}
+
+/**
+ * 既存シートに列が追加された場合(アプリのアップデートで COLUMNS が増えた場合)に、
+ * 足りないヘッダーだけを追記する。既存データ列には触れない。
+ */
+function ensureHeaderColumns_(sheet) {
+  var headers = COLUMNS.map(function (c) { return c.label; });
+  var currentLastCol = sheet.getLastColumn();
+
+  if (currentLastCol < headers.length) {
+    var missing = headers.slice(currentLastCol);
+    sheet.getRange(1, currentLastCol + 1, 1, missing.length).setValues([missing]);
+  }
 }
 
 /**

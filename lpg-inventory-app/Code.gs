@@ -123,7 +123,7 @@ function updateLocation(no, updates) {
     }
 
     var sheet = getSheet_();
-    var numericKeys = ['a20', 'm20', 'a30', 'm30', 'a50', 'm50'];
+    var numericKeys = ['a20', 'm20', 'a30', 'm30', 'a50', 'm50', 'mapX', 'mapY'];
     var textKeys = ['name', 'position', 'note'];
 
     numericKeys.forEach(function (key) {
