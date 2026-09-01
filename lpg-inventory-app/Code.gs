@@ -14,6 +14,47 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
+var BUILDING_OVERRIDES_PROP = 'BUILDING_OVERRIDES';
+
+/**
+ * 敷地図の建屋(SITE_BUILDINGS/SITE_BUILDING_SHAPES)に対する、
+ * ユーザーが調整した位置・向き・大きさの上書き情報を返す。
+ * { [buildingId]: { dx, dy, rotation, scale } }
+ */
+function getBuildingOverrides() {
+  var json = PropertiesService.getScriptProperties().getProperty(BUILDING_OVERRIDES_PROP);
+  return json ? JSON.parse(json) : {};
+}
+
+/**
+ * 建屋1つ分の上書き情報を保存する。override に null を渡すと、その建屋の
+ * 上書きを削除して初期状態に戻す。
+ */
+function saveBuildingOverride(buildingId, override) {
+  if (!buildingId) {
+    throw new Error('建物のIDが指定されていません');
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var all = getBuildingOverrides();
+
+    if (override === null) {
+      delete all[buildingId];
+    } else {
+      all[buildingId] = override;
+    }
+
+    props.setProperty(BUILDING_OVERRIDES_PROP, JSON.stringify(all));
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /**
  * フィルタ条件に合致する置場一覧を返す。
  * filters: { keyword, onlyNearFull }

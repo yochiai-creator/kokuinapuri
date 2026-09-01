@@ -3,10 +3,11 @@
   var viewMode = 'list';
   var lastRecords = [];
   var placementEditMode = false;
+  var buildingEditMode = false;
+  var buildingOverrides = {};
+  var selectedBuildingId = null;
 
   document.addEventListener('DOMContentLoaded', function () {
-    search();
-
     document.getElementById('searchBtn').addEventListener('click', search);
     document.getElementById('addBtn').addEventListener('click', function () { openAddModal(); });
     document.getElementById('keyword').addEventListener('keydown', function (e) {
@@ -17,6 +18,24 @@
     document.getElementById('viewMapBtn').addEventListener('click', function () { setViewMode('map'); });
     document.getElementById('placementEditBtn').addEventListener('click', togglePlacementEditMode);
     document.getElementById('renumberBtn').addEventListener('click', renumberLocations);
+    document.getElementById('buildingEditBtn').addEventListener('click', toggleBuildingEditMode);
+    document.getElementById('buildingRotateCCW').addEventListener('click', function () { adjustSelectedBuilding_({ rotation: -15 }); });
+    document.getElementById('buildingRotateCW').addEventListener('click', function () { adjustSelectedBuilding_({ rotation: 15 }); });
+    document.getElementById('buildingScaleDown').addEventListener('click', function () { adjustSelectedBuilding_({ scaleFactor: 1 / 1.1 }); });
+    document.getElementById('buildingScaleUp').addEventListener('click', function () { adjustSelectedBuilding_({ scaleFactor: 1.1 }); });
+    document.getElementById('buildingReset').addEventListener('click', resetSelectedBuilding_);
+    document.getElementById('buildingDeselect').addEventListener('click', function () { selectBuilding_(null); });
+
+    google.script.run
+      .withSuccessHandler(function (overrides) {
+        buildingOverrides = overrides || {};
+        search();
+      })
+      .withFailureHandler(function () {
+        buildingOverrides = {};
+        search();
+      })
+      .getBuildingOverrides();
   });
 
   function renumberLocations() {
@@ -40,12 +59,81 @@
 
   function togglePlacementEditMode() {
     placementEditMode = !placementEditMode;
+    if (placementEditMode) {
+      buildingEditMode = false;
+      selectBuilding_(null, true);
+      updateBuildingEditUi_();
+    }
     var btn = document.getElementById('placementEditBtn');
     btn.textContent = placementEditMode ? '配置編集中(タップして終了)' : '配置を編集';
     btn.classList.toggle('primary-btn', placementEditMode);
     document.getElementById('mapLegendHint').textContent = placementEditMode
       ? '丸をドラッグすると位置を保存します。'
       : '灰色の四角は建屋の参考位置です。丸をクリックすると編集できます。';
+    renderCurrentView();
+  }
+
+  function toggleBuildingEditMode() {
+    buildingEditMode = !buildingEditMode;
+    if (buildingEditMode) {
+      placementEditMode = false;
+      document.getElementById('placementEditBtn').textContent = '配置を編集';
+      document.getElementById('placementEditBtn').classList.remove('primary-btn');
+    } else {
+      selectBuilding_(null, true);
+    }
+    updateBuildingEditUi_();
+    document.getElementById('mapLegendHint').textContent = buildingEditMode
+      ? '建物をクリックすると選択できます。選択中はドラッグで移動できます。'
+      : '灰色の四角は建屋の参考位置です。丸をクリックすると編集できます。';
+    renderCurrentView();
+  }
+
+  function updateBuildingEditUi_() {
+    var btn = document.getElementById('buildingEditBtn');
+    btn.textContent = buildingEditMode ? '建物編集中(タップして終了)' : '建物を編集';
+    btn.classList.toggle('primary-btn', buildingEditMode);
+    document.getElementById('buildingEditPanel').style.display = (buildingEditMode && selectedBuildingId) ? 'flex' : 'none';
+  }
+
+  function selectBuilding_(id, skipRender) {
+    selectedBuildingId = id;
+    document.getElementById('buildingEditPanel').style.display = (buildingEditMode && selectedBuildingId) ? 'flex' : 'none';
+    if (id) {
+      document.getElementById('buildingEditName').textContent = (buildingById_(id) || {}).name || '';
+    }
+    if (!skipRender) renderCurrentView();
+  }
+
+  function buildingOverride_(id) {
+    return buildingOverrides[id] || { dx: 0, dy: 0, rotation: 0, scale: 1 };
+  }
+
+  function saveBuildingOverride_(id) {
+    var o = buildingOverrides[id];
+    google.script.run
+      .withFailureHandler(showTopError)
+      .saveBuildingOverride(id, o || null);
+  }
+
+  function adjustSelectedBuilding_(delta) {
+    if (!selectedBuildingId) return;
+    var o = buildingOverride_(selectedBuildingId);
+    var updated = {
+      dx: o.dx || 0,
+      dy: o.dy || 0,
+      rotation: (o.rotation || 0) + (delta.rotation || 0),
+      scale: Math.max(0.3, Math.min(3, (o.scale || 1) * (delta.scaleFactor || 1)))
+    };
+    buildingOverrides[selectedBuildingId] = updated;
+    saveBuildingOverride_(selectedBuildingId);
+    renderCurrentView();
+  }
+
+  function resetSelectedBuilding_() {
+    if (!selectedBuildingId) return;
+    delete buildingOverrides[selectedBuildingId];
+    saveBuildingOverride_(selectedBuildingId);
     renderCurrentView();
   }
 
@@ -313,6 +401,91 @@
     return 'bldg-factory';
   }
 
+  // 建物の位置・向き・大きさの調整(建物編集モード)関連。
+  var buildingRegistryMap_ = {};
+
+  function registerBuilding_(id, name, cx, cy) {
+    buildingRegistryMap_[id] = { id: id, name: name, cx: cx, cy: cy };
+  }
+
+  function buildingById_(id) {
+    return buildingRegistryMap_[id];
+  }
+
+  function buildingTransform_(cx, cy, o) {
+    return 'translate(' + o.dx + ',' + o.dy + ') translate(' + cx + ',' + cy + ') ' +
+      'rotate(' + o.rotation + ') scale(' + o.scale + ') translate(' + (-cx) + ',' + (-cy) + ')';
+  }
+
+  function attachBuildingInteraction_(svg, g, id) {
+    g.classList.add('site-building-editable');
+    if (id === selectedBuildingId) {
+      g.classList.add('site-building-selected');
+      attachBuildingDrag_(svg, g, id);
+    }
+
+    g.addEventListener('click', function (evt) {
+      evt.stopPropagation();
+      if (g._buildingMoved) {
+        g._buildingMoved = false;
+        return;
+      }
+      selectBuilding_(id);
+    });
+  }
+
+  function attachBuildingDrag_(svg, g, id) {
+    var dragging = false;
+    var startPos = null;
+    var startOverride = buildingOverride_(id);
+    var startDx = startOverride.dx || 0;
+    var startDy = startOverride.dy || 0;
+
+    function toSvgPoint(evt) {
+      var pt = svg.createSVGPoint();
+      pt.x = evt.clientX;
+      pt.y = evt.clientY;
+      var ctm = svg.getScreenCTM();
+      if (!ctm) return { x: 0, y: 0 };
+      var loc = pt.matrixTransform(ctm.inverse());
+      return { x: loc.x, y: loc.y };
+    }
+
+    g.addEventListener('pointerdown', function (evt) {
+      dragging = true;
+      g._buildingMoved = false;
+      startPos = toSvgPoint(evt);
+      g.setPointerCapture(evt.pointerId);
+      evt.preventDefault();
+      evt.stopPropagation();
+    });
+
+    g.addEventListener('pointermove', function (evt) {
+      if (!dragging) return;
+      var p = toSvgPoint(evt);
+      var dx = p.x - startPos.x;
+      var dy = p.y - startPos.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) g._buildingMoved = true;
+
+      var cur = buildingOverride_(id);
+      cur.dx = startDx + dx;
+      cur.dy = startDy + dy;
+      buildingOverrides[id] = cur;
+
+      var reg = buildingById_(id);
+      g.setAttribute('transform', buildingTransform_(reg.cx, reg.cy, cur));
+    });
+
+    g.addEventListener('pointerup', function (evt) {
+      if (!dragging) return;
+      dragging = false;
+      g.releasePointerCapture(evt.pointerId);
+      if (g._buildingMoved) {
+        saveBuildingOverride_(id);
+      }
+    });
+  }
+
   var MARKER_PIN_R = 165;
 
   // 置場番号(no) -> 地図上の座標。スプレッドシートに保存された座標(ユーザーがドラッグで調整したもの)を
@@ -459,8 +632,17 @@
       svg.appendChild(rect);
     });
 
-    SITE_BUILDINGS.forEach(function (b) {
+    buildingRegistryMap_ = {};
+
+    SITE_BUILDINGS.forEach(function (b, idx) {
+      var id = 'rect:' + idx;
       var category = classifyBuilding_(b.name);
+      var cx = b.x + b.w / 2;
+      var cy = b.y + b.h / 2;
+      registerBuilding_(id, b.name, cx, cy);
+
+      var g = document.createElementNS(svgNS, 'g');
+      g.setAttribute('transform', buildingTransform_(cx, cy, buildingOverride_(id)));
 
       var rect = document.createElementNS(svgNS, 'rect');
       rect.setAttribute('class', 'site-building-rect ' + category);
@@ -468,7 +650,7 @@
       rect.setAttribute('y', b.y);
       rect.setAttribute('width', b.w);
       rect.setAttribute('height', b.h);
-      svg.appendChild(rect);
+      g.appendChild(rect);
 
       var roofH = Math.min(b.h * 0.24, 130);
       var roof = document.createElementNS(svgNS, 'rect');
@@ -477,10 +659,8 @@
       roof.setAttribute('y', b.y);
       roof.setAttribute('width', b.w);
       roof.setAttribute('height', roofH);
-      svg.appendChild(roof);
+      g.appendChild(roof);
 
-      var cx = b.x + b.w / 2;
-      var cy = b.y + b.h / 2;
       var isNarrowTall = b.h > b.w * 1.3;
 
       var text = document.createElementNS(svgNS, 'text');
@@ -493,23 +673,33 @@
         text.setAttribute('transform', 'rotate(-90 ' + cx + ' ' + cy + ')');
       }
       text.textContent = b.name;
-      svg.appendChild(text);
+      g.appendChild(text);
+
+      if (buildingEditMode) {
+        attachBuildingInteraction_(svg, g, id);
+      }
+      svg.appendChild(g);
     });
 
-    SITE_BUILDING_SHAPES.forEach(function (b) {
+    SITE_BUILDING_SHAPES.forEach(function (b, idx) {
+      var id = 'shape:' + idx;
       var category = classifyBuilding_(b.name);
       var xs = b.points.map(function (p) { return p[0]; });
       var ys = b.points.map(function (p) { return p[1]; });
       var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
       var minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+      var cx = (minX + maxX) / 2;
+      var cy = (minY + maxY) / 2;
+      registerBuilding_(id, b.name, cx, cy);
+
+      var g = document.createElementNS(svgNS, 'g');
+      g.setAttribute('transform', buildingTransform_(cx, cy, buildingOverride_(id)));
 
       var polygon = document.createElementNS(svgNS, 'polygon');
       polygon.setAttribute('class', 'site-building-rect ' + category);
       polygon.setAttribute('points', b.points.map(function (p) { return p[0] + ',' + p[1]; }).join(' '));
-      svg.appendChild(polygon);
+      g.appendChild(polygon);
 
-      var cx = (minX + maxX) / 2;
-      var cy = (minY + maxY) / 2;
       var shapeW = maxX - minX, shapeH = maxY - minY;
       var isNarrowTall = shapeH > shapeW * 1.3;
 
@@ -523,7 +713,12 @@
         text.setAttribute('transform', 'rotate(-90 ' + cx + ' ' + cy + ')');
       }
       text.textContent = b.name;
-      svg.appendChild(text);
+      g.appendChild(text);
+
+      if (buildingEditMode) {
+        attachBuildingInteraction_(svg, g, id);
+      }
+      svg.appendChild(g);
     });
 
     var unmatchedContainer = document.getElementById('unmatchedCards');

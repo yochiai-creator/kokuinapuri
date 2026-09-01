@@ -67,6 +67,16 @@
       <span class="legend-hint" id="mapLegendHint">灰色の四角は建屋の参考位置です。丸をクリックすると編集できます。</span>
       <div class="spacer"></div>
       <button id="placementEditBtn" class="secondary">配置を編集</button>
+      <button id="buildingEditBtn" class="secondary">建物を編集</button>
+    </div>
+    <div id="buildingEditPanel" class="building-edit-panel" style="display:none;">
+      <span id="buildingEditName" class="building-edit-name"></span>
+      <button id="buildingRotateCCW" class="secondary">↺ 回転</button>
+      <button id="buildingRotateCW" class="secondary">回転 ↻</button>
+      <button id="buildingScaleDown" class="secondary">－ 縮小</button>
+      <button id="buildingScaleUp" class="secondary">＋ 拡大</button>
+      <button id="buildingReset" class="secondary">リセット</button>
+      <button id="buildingDeselect" class="secondary">選択解除</button>
     </div>
     <div class="site-map-scroll">
       <svg id="siteMapSvg" viewBox="-300 -300 17300 12700" preserveAspectRatio="xMidYMid meet"></svg>

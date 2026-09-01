@@ -390,6 +390,25 @@
     color: var(--muted);
   }
 
+  .building-edit-panel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: -6px 0 14px;
+    padding: 8px 12px;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+  }
+
+  .building-edit-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text);
+    margin-right: 4px;
+  }
+
   .legend-item {
     display: inline-flex;
     align-items: center;
@@ -470,6 +489,19 @@
 
   .site-roof {
     pointer-events: none;
+  }
+
+  .site-building-editable {
+    cursor: pointer;
+  }
+
+  .site-building-editable.site-building-selected .site-building-rect {
+    stroke: var(--accent);
+    stroke-width: 34;
+  }
+
+  .site-building-editable.site-building-selected {
+    cursor: move;
   }
 
   .site-roof.bldg-factory {
