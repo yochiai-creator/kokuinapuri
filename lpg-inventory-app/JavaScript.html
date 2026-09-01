@@ -241,7 +241,10 @@
         lastRecords = records;
         renderCurrentView();
       })
-      .withFailureHandler(showTopError)
+      .withFailureHandler(function (err) {
+        showTopError(err);
+        renderCurrentView();
+      })
       .getInventory(filters);
   }
 
@@ -257,6 +260,7 @@
     var tbody = document.getElementById('tbody');
     var emptyMsg = document.getElementById('emptyMsg');
     tbody.innerHTML = '';
+    emptyMsg.textContent = '該当する置場がありません';
 
     if (!records.length) {
       emptyMsg.style.display = 'block';
@@ -897,12 +901,12 @@
       '    <div class="field"><label>置場名</label><input id="f_name" value="' + escapeAttr(record.name) + '"></div>' +
       '    <div class="field"><label>位置</label><input id="f_position" value="' + escapeAttr(record.position) + '"></div>' +
       '    <div class="field-grid">' +
-      '      <div class="field"><label>20kg 実績</label><input id="f_a20" type="number" value="' + numAttr(record.a20) + '"></div>' +
-      '      <div class="field"><label>20kg MAX</label><input id="f_m20" type="number" value="' + numAttr(record.m20) + '"></div>' +
-      '      <div class="field"><label>30kg 実績</label><input id="f_a30" type="number" value="' + numAttr(record.a30) + '"></div>' +
-      '      <div class="field"><label>30kg MAX</label><input id="f_m30" type="number" value="' + numAttr(record.m30) + '"></div>' +
-      '      <div class="field"><label>50kg 実績</label><input id="f_a50" type="number" value="' + numAttr(record.a50) + '"></div>' +
-      '      <div class="field"><label>50kg MAX</label><input id="f_m50" type="number" value="' + numAttr(record.m50) + '"></div>' +
+      '      <div class="field"><label>20kg 実績</label><input id="f_a20" type="number" min="0" value="' + numAttr(record.a20) + '"></div>' +
+      '      <div class="field"><label>20kg MAX</label><input id="f_m20" type="number" min="0" value="' + numAttr(record.m20) + '"></div>' +
+      '      <div class="field"><label>30kg 実績</label><input id="f_a30" type="number" min="0" value="' + numAttr(record.a30) + '"></div>' +
+      '      <div class="field"><label>30kg MAX</label><input id="f_m30" type="number" min="0" value="' + numAttr(record.m30) + '"></div>' +
+      '      <div class="field"><label>50kg 実績</label><input id="f_a50" type="number" min="0" value="' + numAttr(record.a50) + '"></div>' +
+      '      <div class="field"><label>50kg MAX</label><input id="f_m50" type="number" min="0" value="' + numAttr(record.m50) + '"></div>' +
       '    </div>' +
       '    <div class="field"><label>備考</label><input id="f_note" value="' + escapeAttr(record.note) + '"></div>' +
       '    <div id="modalError" class="error-text"></div>' +
@@ -954,12 +958,12 @@
       '    <div class="field"><label>置場名</label><input id="f_name"></div>' +
       '    <div class="field"><label>位置</label><input id="f_position"></div>' +
       '    <div class="field-grid">' +
-      '      <div class="field"><label>20kg 実績</label><input id="f_a20" type="number" value="0"></div>' +
-      '      <div class="field"><label>20kg MAX</label><input id="f_m20" type="number" value="0"></div>' +
-      '      <div class="field"><label>30kg 実績</label><input id="f_a30" type="number" value="0"></div>' +
-      '      <div class="field"><label>30kg MAX</label><input id="f_m30" type="number" value="0"></div>' +
-      '      <div class="field"><label>50kg 実績</label><input id="f_a50" type="number" value="0"></div>' +
-      '      <div class="field"><label>50kg MAX</label><input id="f_m50" type="number" value="0"></div>' +
+      '      <div class="field"><label>20kg 実績</label><input id="f_a20" type="number" min="0" value="0"></div>' +
+      '      <div class="field"><label>20kg MAX</label><input id="f_m20" type="number" min="0" value="0"></div>' +
+      '      <div class="field"><label>30kg 実績</label><input id="f_a30" type="number" min="0" value="0"></div>' +
+      '      <div class="field"><label>30kg MAX</label><input id="f_m30" type="number" min="0" value="0"></div>' +
+      '      <div class="field"><label>50kg 実績</label><input id="f_a50" type="number" min="0" value="0"></div>' +
+      '      <div class="field"><label>50kg MAX</label><input id="f_m50" type="number" min="0" value="0"></div>' +
       '    </div>' +
       '    <div class="field"><label>備考</label><input id="f_note"></div>' +
       '    <div id="modalError" class="error-text"></div>' +

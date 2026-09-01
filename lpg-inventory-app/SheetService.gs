@@ -208,3 +208,47 @@ function currentUserEmail_() {
   var email = Session.getActiveUser().getEmail();
   return email || '不明';
 }
+
+function columnLabel_(key) {
+  for (var i = 0; i < COLUMNS.length; i++) {
+    if (COLUMNS[i].key === key) return COLUMNS[i].label;
+  }
+  return key;
+}
+
+var HISTORY_SHEET_NAME = '変更履歴';
+var HISTORY_COLUMNS = ['日時', '操作者', '番号', '置場名', '変更内容'];
+
+function getHistorySheet_() {
+  var ss = getSpreadsheet_();
+  var sheet = ss.getSheetByName(HISTORY_SHEET_NAME);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(HISTORY_SHEET_NAME);
+    sheet.getRange(1, 1, 1, HISTORY_COLUMNS.length).setValues([HISTORY_COLUMNS]);
+    sheet.setFrozenRows(1);
+  }
+
+  return sheet;
+}
+
+/**
+ * 置場の変更内容を「変更履歴」シートに1行追記する。changesが空なら何もしない。
+ * changes: [{ label, before, after }, ...] 実際に値が変わった項目のみを渡すこと。
+ */
+function appendHistory_(no, name, changes) {
+  if (!changes || !changes.length) {
+    return;
+  }
+
+  var sheet = getHistorySheet_();
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+  var summary = changes.map(function (c) {
+    if (c.before === '' && c.after === '') {
+      return c.label;
+    }
+    return c.label + ': ' + c.before + ' → ' + c.after;
+  }).join(' / ');
+
+  sheet.appendRow([now, currentUserEmail_(), no, name, summary]);
+}
