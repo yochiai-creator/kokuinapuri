@@ -104,6 +104,15 @@
 
   button.secondary:hover { background: #f7f8fa; }
 
+  button.secondary.danger {
+    color: var(--danger);
+    border-color: #f3bcb6;
+  }
+
+  button.secondary.danger:hover {
+    background: #fdeceb;
+  }
+
   button:disabled {
     opacity: 0.5;
     cursor: default;
@@ -502,6 +511,26 @@
 
   .site-building-editable.site-building-selected {
     cursor: move;
+  }
+
+  .site-area-zone {
+    fill: rgba(99, 102, 241, 0.1);
+    stroke: #6366f1;
+    stroke-width: 26;
+    stroke-dasharray: 60 40;
+  }
+
+  .site-building-editable.site-building-selected .site-area-zone {
+    stroke: var(--accent);
+    stroke-width: 36;
+  }
+
+  .site-area-zone-label {
+    fill: #4338ca;
+    font-size: 145px;
+    font-weight: 700;
+    text-anchor: middle;
+    pointer-events: none;
   }
 
   .site-roof.bldg-factory {

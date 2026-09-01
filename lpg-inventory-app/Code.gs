@@ -15,6 +15,7 @@ function include(filename) {
 }
 
 var BUILDING_OVERRIDES_PROP = 'BUILDING_OVERRIDES';
+var AREA_ZONES_PROP = 'AREA_ZONES';
 
 /**
  * 敷地図の建屋(SITE_BUILDINGS/SITE_BUILDING_SHAPES)に対する、
@@ -49,6 +50,33 @@ function saveBuildingOverride(buildingId, override) {
     }
 
     props.setProperty(BUILDING_OVERRIDES_PROP, JSON.stringify(all));
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * ユーザーが自由に追加できる「エリア(囲み枠)」の一覧を返す。
+ * 建屋と違って形の初期値がユーザー定義のため、配列そのものを保存・取得する。
+ * [{ id, name, x, y, w, h }]
+ */
+function getAreaZones() {
+  var json = PropertiesService.getScriptProperties().getProperty(AREA_ZONES_PROP);
+  return json ? JSON.parse(json) : [];
+}
+
+/**
+ * エリア(囲み枠)の一覧をまるごと保存する。追加・削除・改名はクライアント側で
+ * 配列を編集してから呼び出す。位置・向き・大きさの調整は建屋と同じ
+ * saveBuildingOverride('zone:'+id, ...) を使う。
+ */
+function saveAreaZones(zones) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    PropertiesService.getScriptProperties().setProperty(AREA_ZONES_PROP, JSON.stringify(zones || []));
     return { ok: true };
   } finally {
     lock.releaseLock();
