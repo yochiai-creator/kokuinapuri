@@ -16,7 +16,27 @@
     document.getElementById('viewListBtn').addEventListener('click', function () { setViewMode('list'); });
     document.getElementById('viewMapBtn').addEventListener('click', function () { setViewMode('map'); });
     document.getElementById('placementEditBtn').addEventListener('click', togglePlacementEditMode);
+    document.getElementById('renumberBtn').addEventListener('click', renumberLocations);
   });
+
+  function renumberLocations() {
+    var ok = window.confirm('現在の並び順のまま、番号を1から振り直します。実行しますか？');
+    if (!ok) return;
+
+    var btn = document.getElementById('renumberBtn');
+    btn.disabled = true;
+
+    google.script.run
+      .withSuccessHandler(function () {
+        btn.disabled = false;
+        search();
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        showTopError(err);
+      })
+      .renumberLocationsSequentially();
+  }
 
   function togglePlacementEditMode() {
     placementEditMode = !placementEditMode;
@@ -257,26 +277,27 @@
   ];
 
   // 置場番号(no) -> 敷地図上の座標(建屋と同じEMU/1000スケール)。建屋名との対応が確認できたものだけをここに置く。
-  // 大型製缶(⑦-1/⑦-2/⑧/⑨)と西製品倉庫(⑭/㉔)は同じ建屋を共有するため、建屋の幅の中で少しずらして配置。
+  // 大型製缶(7/8/9/10)と西製品倉庫(15/25)は同じ建屋を共有するため、建屋の幅の中で少しずらして配置。
+  // このマップは番号を振り直す前(旧: ①②…㉛等)の並び順を前提にしている。番号を振り直しても対応関係は変わらない。
   var LOCATION_MARKER_POS = {
-    '②': { x: 2373.1, y: 5512.4 },
-    '③': { x: 3879.9, y: 6999.1 },
-    '④': { x: 5182.2, y: 8776.4 },
-    '⑦-1': { x: 7743.6, y: 5265.3 },
-    '⑦-2': { x: 8668.7, y: 5265.3 },
-    '⑧': { x: 9522.5, y: 5265.3 },
-    '⑨': { x: 10447.6, y: 5265.3 },
-    '⑩': { x: 12906.8, y: 10514.6 },
-    '⑪': { x: 8286.9, y: 9274.9 },
-    '⑭': { x: 9029.4, y: 11633.8 },
-    '⑱': { x: 14987.8, y: 6167.6 },
-    '㉑': { x: 14355.4, y: 8824.3 },
-    '㉒': { x: 6502.9, y: 7510.5 },
-    '㉔': { x: 9457.5, y: 11633.8 },
-    '㉖': { x: 6783.0, y: 7187.4 },
-    '㉘': { x: 5912.1, y: 10022.7 },
-    '㉚': { x: 12690.0, y: 5453.6 },
-    '㉛': { x: 12979.9, y: 6977.3 }
+    2: { x: 2373.1, y: 5512.4 },
+    3: { x: 3879.9, y: 6999.1 },
+    4: { x: 5182.2, y: 8776.4 },
+    7: { x: 7743.6, y: 5265.3 },
+    8: { x: 8668.7, y: 5265.3 },
+    9: { x: 9522.5, y: 5265.3 },
+    10: { x: 10447.6, y: 5265.3 },
+    11: { x: 12906.8, y: 10514.6 },
+    12: { x: 8286.9, y: 9274.9 },
+    15: { x: 9029.4, y: 11633.8 },
+    19: { x: 14987.8, y: 6167.6 },
+    22: { x: 14355.4, y: 8824.3 },
+    23: { x: 6502.9, y: 7510.5 },
+    25: { x: 9457.5, y: 11633.8 },
+    27: { x: 6783.0, y: 7187.4 },
+    29: { x: 5912.1, y: 10022.7 },
+    32: { x: 12690.0, y: 5453.6 },
+    33: { x: 12979.9, y: 6977.3 }
   };
 
   // 建屋ラベルが枠からはみ出さないよう、名前の長さと枠の大きさから文字サイズを決める。

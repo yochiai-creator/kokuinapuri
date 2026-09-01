@@ -40,7 +40,7 @@ function getInventory(filters) {
   });
 
   result.sort(function (a, b) {
-    return String(a.no).localeCompare(String(b.no), 'ja');
+    return String(a.no).localeCompare(String(b.no), 'ja', { numeric: true });
   });
 
   return result;
@@ -98,6 +98,44 @@ function addLocation(data) {
 
     sheet.appendRow(row);
     return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 既存置場の番号を、現在の並び順のまま 1, 2, 3... の単純な通し番号に振り直す。
+ * 番号以外のデータ(実績・MAX・地図上の位置など)は変更しない。
+ */
+function renumberLocationsSequentially() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    var sheet = getSheet_();
+    var lastRow = sheet.getLastRow();
+
+    if (lastRow < 2) {
+      return { ok: true, count: 0 };
+    }
+
+    var noCol = columnIndex_('no');
+    var range = sheet.getRange(2, noCol, lastRow - 1, 1);
+    var values = range.getValues();
+    var newValues = [];
+    var n = 0;
+
+    for (var i = 0; i < values.length; i++) {
+      if (values[i][0] === '' || values[i][0] === null) {
+        newValues.push(['']);
+        continue;
+      }
+      n++;
+      newValues.push([n]);
+    }
+
+    range.setValues(newValues);
+    return { ok: true, count: n };
   } finally {
     lock.releaseLock();
   }
