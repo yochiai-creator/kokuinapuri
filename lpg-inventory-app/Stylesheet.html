@@ -202,6 +202,7 @@
 
   .table-wrap {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   table {
@@ -443,6 +444,7 @@
 
   .site-map-scroll {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: #fafbfc;
@@ -502,6 +504,9 @@
 
   .site-building-editable {
     cursor: pointer;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .site-building-editable.site-building-selected .site-building-rect {
@@ -643,9 +648,57 @@
   .map-card.level-over { background: #fdeceb; border-color: #f3bcb6; }
   .map-card.level-empty { background: #f5f6f8; color: var(--muted); }
 
+  /* タッチ操作(現場タブレット等)向け: 指で押しやすいサイズに広げる。マウス操作の見た目は変えない。 */
+  @media (pointer: coarse) {
+    button {
+      padding: 12px 18px;
+      min-height: 44px;
+      font-size: 14px;
+    }
+
+    .toggle-btn,
+    button.secondary {
+      min-height: 40px;
+    }
+
+    .toolbar input[type="text"] {
+      padding: 12px 12px 12px 34px;
+      font-size: 15px;
+    }
+
+    .checkbox input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+    }
+
+    .edit-btn {
+      padding: 10px 16px;
+    }
+
+    .field input,
+    .field select {
+      padding: 12px 10px;
+      font-size: 16px;
+    }
+
+    .map-card {
+      padding: 12px 12px;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .toolbar { align-items: stretch; }
+    .search-box { max-width: none; flex-basis: 100%; }
+    .spacer { flex-basis: 100%; height: 0; }
+    .map-legend { row-gap: 10px; }
+  }
+
   @media (max-width: 640px) {
     body { padding: 14px; }
     .app-header { flex-direction: column; align-items: stretch; }
     .app-header button { width: 100%; }
+    .view-toggle { width: 100%; }
+    .toggle-btn { flex: 1; }
+    .field-grid { grid-template-columns: 1fr; }
   }
 </style>
