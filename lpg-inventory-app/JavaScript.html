@@ -1,0 +1,1076 @@
+<script>
+  var SIZE_KEYS = ['20', '30', '50'];
+  var viewMode = 'list';
+  var lastRecords = [];
+  var placementEditMode = false;
+  var buildingEditMode = false;
+  var buildingOverrides = {};
+  var selectedBuildingId = null;
+  var areaZones = [];
+
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('searchBtn').addEventListener('click', search);
+    document.getElementById('addBtn').addEventListener('click', function () { openAddModal(); });
+    document.getElementById('keyword').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') search();
+    });
+    document.getElementById('onlyNearFull').addEventListener('change', search);
+    document.getElementById('viewListBtn').addEventListener('click', function () { setViewMode('list'); });
+    document.getElementById('viewMapBtn').addEventListener('click', function () { setViewMode('map'); });
+    document.getElementById('placementEditBtn').addEventListener('click', togglePlacementEditMode);
+    document.getElementById('renumberBtn').addEventListener('click', renumberLocations);
+    document.getElementById('buildingEditBtn').addEventListener('click', toggleBuildingEditMode);
+    document.getElementById('buildingRotateCCW').addEventListener('click', function () { adjustSelectedBuilding_({ rotation: -15 }); });
+    document.getElementById('buildingRotateCW').addEventListener('click', function () { adjustSelectedBuilding_({ rotation: 15 }); });
+    document.getElementById('buildingScaleDown').addEventListener('click', function () { adjustSelectedBuilding_({ scaleFactor: 1 / 1.1 }); });
+    document.getElementById('buildingScaleUp').addEventListener('click', function () { adjustSelectedBuilding_({ scaleFactor: 1.1 }); });
+    document.getElementById('buildingReset').addEventListener('click', resetSelectedBuilding_);
+    document.getElementById('buildingRename').addEventListener('click', renameSelectedZone_);
+    document.getElementById('buildingDelete').addEventListener('click', deleteSelectedZone_);
+    document.getElementById('buildingDeselect').addEventListener('click', function () { selectBuilding_(null); });
+    document.getElementById('addAreaZoneBtn').addEventListener('click', addAreaZone_);
+
+    google.script.run
+      .withSuccessHandler(function (overrides) {
+        buildingOverrides = overrides || {};
+        google.script.run
+          .withSuccessHandler(function (zones) {
+            areaZones = zones || [];
+            search();
+          })
+          .withFailureHandler(function () {
+            areaZones = [];
+            search();
+          })
+          .getAreaZones();
+      })
+      .withFailureHandler(function () {
+        buildingOverrides = {};
+        areaZones = [];
+        search();
+      })
+      .getBuildingOverrides();
+  });
+
+  function renumberLocations() {
+    var ok = window.confirm('現在の並び順のまま、番号を1から振り直します。実行しますか？');
+    if (!ok) return;
+
+    var btn = document.getElementById('renumberBtn');
+    btn.disabled = true;
+
+    google.script.run
+      .withSuccessHandler(function () {
+        btn.disabled = false;
+        search();
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        showTopError(err);
+      })
+      .renumberLocationsSequentially();
+  }
+
+  function togglePlacementEditMode() {
+    placementEditMode = !placementEditMode;
+    if (placementEditMode) {
+      buildingEditMode = false;
+      selectBuilding_(null, true);
+      updateBuildingEditUi_();
+    }
+    var btn = document.getElementById('placementEditBtn');
+    btn.textContent = placementEditMode ? '配置編集中(タップして終了)' : '配置を編集';
+    btn.classList.toggle('primary-btn', placementEditMode);
+    document.getElementById('mapLegendHint').textContent = placementEditMode
+      ? '丸をドラッグすると位置を保存します。'
+      : '灰色の四角は建屋の参考位置です。丸をクリックすると編集できます。';
+    renderCurrentView();
+  }
+
+  function toggleBuildingEditMode() {
+    buildingEditMode = !buildingEditMode;
+    if (buildingEditMode) {
+      placementEditMode = false;
+      document.getElementById('placementEditBtn').textContent = '配置を編集';
+      document.getElementById('placementEditBtn').classList.remove('primary-btn');
+    } else {
+      selectBuilding_(null, true);
+    }
+    updateBuildingEditUi_();
+    document.getElementById('mapLegendHint').textContent = buildingEditMode
+      ? '建物をクリックすると選択できます。選択中はドラッグで移動できます。'
+      : '灰色の四角は建屋の参考位置です。丸をクリックすると編集できます。';
+    renderCurrentView();
+  }
+
+  function isZoneId_(id) {
+    return typeof id === 'string' && id.indexOf('zone:') === 0;
+  }
+
+  function updateBuildingEditUi_() {
+    var btn = document.getElementById('buildingEditBtn');
+    btn.textContent = buildingEditMode ? '建物編集中(タップして終了)' : '建物を編集';
+    btn.classList.toggle('primary-btn', buildingEditMode);
+    document.getElementById('buildingEditPanel').style.display = (buildingEditMode && selectedBuildingId) ? 'flex' : 'none';
+
+    var isZone = isZoneId_(selectedBuildingId);
+    document.getElementById('buildingRename').style.display = isZone ? '' : 'none';
+    document.getElementById('buildingDelete').style.display = isZone ? '' : 'none';
+    document.getElementById('buildingReset').style.display = isZone ? 'none' : '';
+  }
+
+  function selectBuilding_(id, skipRender) {
+    selectedBuildingId = id;
+    updateBuildingEditUi_();
+    if (!skipRender) renderCurrentView();
+    if (id) {
+      document.getElementById('buildingEditName').textContent = (buildingById_(id) || {}).name || '';
+    }
+  }
+
+  function buildingOverride_(id) {
+    return buildingOverrides[id] || { dx: 0, dy: 0, rotation: 0, scale: 1 };
+  }
+
+  function saveBuildingOverride_(id) {
+    var o = buildingOverrides[id];
+    google.script.run
+      .withFailureHandler(showTopError)
+      .saveBuildingOverride(id, o || null);
+  }
+
+  function adjustSelectedBuilding_(delta) {
+    if (!selectedBuildingId) return;
+    var o = buildingOverride_(selectedBuildingId);
+    var updated = {
+      dx: o.dx || 0,
+      dy: o.dy || 0,
+      rotation: (o.rotation || 0) + (delta.rotation || 0),
+      scale: Math.max(0.3, Math.min(3, (o.scale || 1) * (delta.scaleFactor || 1)))
+    };
+    buildingOverrides[selectedBuildingId] = updated;
+    saveBuildingOverride_(selectedBuildingId);
+    renderCurrentView();
+  }
+
+  function resetSelectedBuilding_() {
+    if (!selectedBuildingId) return;
+    delete buildingOverrides[selectedBuildingId];
+    saveBuildingOverride_(selectedBuildingId);
+    renderCurrentView();
+  }
+
+  function saveAreaZones_() {
+    google.script.run
+      .withFailureHandler(showTopError)
+      .saveAreaZones(areaZones);
+  }
+
+  // 「エリアを囲む」ボタン。地図の中央付近に新しい枠を追加し、そのまま
+  // 建物編集モードで選択状態にする(名前・位置・向き・大きさはあとから調整できる)。
+  function addAreaZone_() {
+    var name = window.prompt('エリアの名前を入力してください', '新しいエリア');
+    if (name === null) return;
+    name = name.trim() || '新しいエリア';
+
+    if (!buildingEditMode) {
+      buildingEditMode = true;
+      placementEditMode = false;
+      document.getElementById('placementEditBtn').textContent = '配置を編集';
+      document.getElementById('placementEditBtn').classList.remove('primary-btn');
+      document.getElementById('mapLegendHint').textContent = '建物をクリックすると選択できます。選択中はドラッグで移動できます。';
+    }
+
+    var zone = { id: 'a' + Date.now(), name: name, x: 7550, y: 5250, w: 1600, h: 1600 };
+    areaZones.push(zone);
+    saveAreaZones_();
+    selectBuilding_('zone:' + zone.id);
+  }
+
+  function findZoneById_(zoneId) {
+    for (var i = 0; i < areaZones.length; i++) {
+      if (areaZones[i].id === zoneId) return areaZones[i];
+    }
+    return null;
+  }
+
+  function renameSelectedZone_() {
+    if (!isZoneId_(selectedBuildingId)) return;
+    var zone = findZoneById_(selectedBuildingId.slice(5));
+    if (!zone) return;
+    var name = window.prompt('エリアの名前を変更', zone.name);
+    if (name === null) return;
+    zone.name = name.trim() || zone.name;
+    saveAreaZones_();
+    document.getElementById('buildingEditName').textContent = zone.name;
+    renderCurrentView();
+  }
+
+  function deleteSelectedZone_() {
+    if (!isZoneId_(selectedBuildingId)) return;
+    var ok = window.confirm('このエリアを削除しますか？');
+    if (!ok) return;
+
+    var id = selectedBuildingId;
+    var zoneId = id.slice(5);
+    areaZones = areaZones.filter(function (z) { return z.id !== zoneId; });
+    delete buildingOverrides[id];
+    saveAreaZones_();
+    saveBuildingOverride_(id);
+    selectBuilding_(null, true);
+    renderCurrentView();
+  }
+
+  function setViewMode(mode) {
+    viewMode = mode;
+    document.getElementById('viewListBtn').classList.toggle('active', mode === 'list');
+    document.getElementById('viewMapBtn').classList.toggle('active', mode === 'map');
+    document.getElementById('tableView').style.display = mode === 'list' ? '' : 'none';
+    document.getElementById('mapView').style.display = mode === 'map' ? '' : 'none';
+    renderCurrentView();
+  }
+
+  function search() {
+    var filters = {
+      keyword: document.getElementById('keyword').value,
+      onlyNearFull: document.getElementById('onlyNearFull').checked
+    };
+
+    google.script.run
+      .withSuccessHandler(function (records) {
+        lastRecords = records;
+        renderCurrentView();
+      })
+      .withFailureHandler(function (err) {
+        showTopError(err);
+        renderCurrentView();
+      })
+      .getInventory(filters);
+  }
+
+  function renderCurrentView() {
+    if (viewMode === 'map') {
+      renderSiteMap(lastRecords);
+    } else {
+      renderTable(lastRecords);
+    }
+  }
+
+  function renderTable(records) {
+    var tbody = document.getElementById('tbody');
+    var emptyMsg = document.getElementById('emptyMsg');
+    tbody.innerHTML = '';
+    emptyMsg.textContent = '該当する置場がありません';
+
+    if (!records.length) {
+      emptyMsg.style.display = 'block';
+      return;
+    }
+    emptyMsg.style.display = 'none';
+
+    records.forEach(function (r) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="no-cell">' + escapeHtml(r.no) + '</td>' +
+        '<td>' +
+        '  <div class="name-cell">' + escapeHtml(r.name) + '</div>' +
+        '  <div class="position-cell">' + escapeHtml(r.position) + '</div>' +
+        '</td>' +
+        '<td>' + utilCellHtml(r.a20, r.m20) + '</td>' +
+        '<td>' + utilCellHtml(r.a30, r.m30) + '</td>' +
+        '<td>' + utilCellHtml(r.a50, r.m50) + '</td>' +
+        '<td class="note-cell">' + escapeHtml(r.note) + '</td>' +
+        '<td class="updated-cell">' +
+        '  <div>' + escapeHtml(r.updatedAt) + '</div>' +
+        '  <div class="updated-by">' + escapeHtml(r.updatedBy) + '</div>' +
+        '</td>' +
+        '<td><button class="secondary edit-btn">編集</button></td>';
+
+      tr.querySelector('.edit-btn').addEventListener('click', function () {
+        openEditModal(r);
+      });
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  function utilCellHtml(actual, max) {
+    actual = Number(actual) || 0;
+    max = Number(max) || 0;
+
+    if (max <= 0) {
+      return '<div class="util-cell util-empty">-</div>';
+    }
+
+    var pct = Math.round((actual / max) * 100);
+    var barClass = 'util-bar-fill';
+    if (pct >= 100) barClass += ' over';
+    else if (pct >= 80) barClass += ' warn';
+
+    return (
+      '<div class="util-cell">' +
+      '  <span class="util-numbers">' + actual + ' / ' + max + ' (' + pct + '%)</span>' +
+      '  <div class="util-bar"><div class="' + barClass + '" style="width:' + Math.min(100, pct) + '%"></div></div>' +
+      '</div>'
+    );
+  }
+
+  // 神鋼機器工業様の敷地配置図(Excel図面)から、セル幅(9文字=63px)・行高(13.5pt=18px)を
+  // 使って実寸換算した建屋の位置(EMU/1000単位)。背景の参考表示。
+  var SITE_BUILDINGS = [
+    { name: '大型仕上工場', x: 12266.5, y: 6868.8, w: 2281.8, h: 585.6 },
+    { name: '焼却炉', x: 2198.9, y: 4874.6, w: 745.9, h: 250.6 }
+  ];
+
+  // 実際の輪郭が四角形でない建屋。原本図面(PDF)のベクター座標を実測して変換したもの。
+  var SITE_BUILDING_SHAPES = [
+    {
+      name: '大型製缶工場',
+      points: [[7543.5, 4640.1], [11154.5, 4649.6], [11198.6, 6177.4], [7584.9, 6148]]
+    },
+    {
+      name: '保全工場',
+      points: [[6398.2, 6570], [7466.6, 6584.3], [7460.9, 7168.9], [6392.4, 7154.7]]
+    },
+    {
+      name: '製品第三倉庫',
+      points: [[6470.6, 7562.5], [7420.9, 7585.3], [7416.1, 7854], [6465.8, 7831.1]]
+    },
+    {
+      name: '製品第二倉庫',
+      points: [[6415.1, 7093.3], [7488.4, 7222.3], [7454.8, 7594.3], [6381.5, 7465.3]]
+    },
+    {
+      name: '北作業場',
+      points: [[2036.5, 4512.6], [2968.5, 4543], [2960.3, 4882.1], [2028.2, 4851.7]]
+    },
+    {
+      name: '水処理',
+      points: [[1988.9, 5194.1], [2944.6, 5196.7], [2942.9, 6003.6], [1987.3, 6000.9]]
+    },
+    {
+      name: '塗装工場',
+      points: [[15180.7, 5509], [15732.9, 5464.2], [15844.3, 7333.4], [15292.1, 7378.2]]
+    },
+    {
+      name: '小型検査工場',
+      points: [[14080.8, 5409.5], [14495.9, 5415.7], [14484.5, 6434.2], [14069.4, 6427.9]]
+    },
+    {
+      name: '工作工場',
+      points: [[12935.2, 5293.8], [13249.7, 5279.5], [13272.1, 5947], [12957.5, 5961.3]]
+    },
+    {
+      name: '班長室',
+      points: [[9747.8, 3829.3], [10291.8, 3869.1], [10280.9, 4068.1], [9736.9, 4028.3]]
+    },
+    {
+      name: '西製品倉庫',
+      points: [[8084.3, 10584.4], [14636.1, 12082.8], [14518.6, 12376.6], [10045.4, 11473.2], [7981.5, 11039.8]]
+    },
+    {
+      name: '特殊製缶工場',
+      points: [[3561.6, 3749.8], [8978.2, 3815.2], [8980.1, 3601.6], [9038.5, 3602.3], [9052.7, 2014.5], [8593.9, 2008.9], [8593.5, 2056.9], [5055.1, 2014.1], [5055.9, 1927], [4896, 1925.1], [4895.3, 2012.2], [4662.1, 2009.4], [4663.8, 1815.5], [4496.5, 1813.5], [4494.6, 2027], [3577.1, 2015.9]]
+    },
+    {
+      name: '20ｋｇ容器工場',
+      points: [[7277, 8386.5], [4740.1, 8317.8], [4741.4, 8251], [4534.8, 8245.4], [4533.5, 8312.2], [4030.9, 8298.5], [4032.4, 8221], [3840.7, 8215.8], [3837, 8398.8], [3953.6, 8440.7], [4028, 8442.7], [4011.2, 9276], [3845.5, 9271.5], [3840.3, 9529.9], [4906.8, 9558.8], [4905.2, 9636.3], [5301.7, 9647], [5302.7, 9597.5], [5641.4, 9606.7], [5642.2, 9570], [7252.2, 9613.6]]
+    },
+    {
+      name: '20ｋｇ容器工場',
+      points: [[5302.8, 10405.2], [7180.3, 10893], [7389, 9813.1], [6874.6, 9679.9], [6837.7, 9866.4], [6372.7, 9745.6], [6335.5, 9945.4], [5437.6, 9711.6]]
+    },
+    {
+      name: '北製品倉庫Ａ・Ｂ',
+      points: [[1550.7, 2023.2], [2470.9, 2011.1], [2472.4, 2165], [2961.5, 2158.6], [2977.1, 3761], [1707.8, 3777.7], [1700.3, 3005.7], [1560.2, 3007.5]]
+    },
+    {
+      name: '特殊容器工場',
+      points: [[4415.3, 4490.5], [5657.6, 4543.4], [5632.5, 5335.8], [5492.4, 5329.9], [5484.4, 5582.7], [5624.5, 5588.7], [5617.1, 5820.9], [5469.1, 5814.6], [5467.5, 5867], [5615.4, 5873.3], [5602.9, 6267.2], [5009.3, 6242], [5011.9, 6162.3], [4215.2, 6128.4], [4229.1, 5691.2], [4290.2, 5693.8], [4306, 5197.4], [4392.8, 5201.1]]
+    },
+    {
+      name: '50ｋｇ容器工場',
+      points: [[2263.6, 6279.4], [2605.2, 6288], [2602.9, 6407.5], [5127.3, 6471.2], [5123.8, 6662.3], [5322.7, 6667.3], [5324, 6597.9], [6082.3, 6617], [6058.5, 7885.1], [5850.1, 7879.8], [5851.3, 7819], [5102.4, 7800.1], [5101.5, 7850.1], [3551.1, 7810.9], [3548.9, 7930.3], [3398.8, 7926.6], [3400.8, 7818], [2477.4, 7794.7], [2482.1, 7545], [2298.2, 7540.4], [2251.4, 6928.7], [2493.6, 6934.8], [2500.1, 6585.2], [2366.8, 6581.8], [2368.1, 6512.4], [2259.3, 6509.6]]
+    },
+    {
+      name: '電気',
+      points: [[8748.1, 917.6], [8743.1, 1488.2], [9364.7, 1495.5], [9364.2, 1552.3], [9817.7, 1535.3], [9800.4, 517], [9363.3, 604.6], [9360.5, 924.7]]
+    },
+    {
+      name: 'アーム工場',
+      points: [[9670.8, 2049.5], [11129.8, 2085.8], [11131.9, 2000.8], [11367.2, 2008.5], [11374.9, 3885.7], [9694.1, 3742.4]]
+    },
+    {
+      name: '酸洗工場',
+      points: [[3310.1, 6133.3], [3324.7, 5707.3], [3310.1, 5619.2], [3295.4, 4576.2], [4031.9, 4568.7], [4073.9, 6089.3]]
+    },
+    {
+      name: '大型検査工場',
+      points: [[12815.5, 2881], [13117.6, 2882.9], [13116.3, 3149.7], [13418.3, 3151.6], [13415.4, 3760], [14126.2, 3764.5], [14122.7, 4535.1], [12807.9, 4526.9]]
+    },
+    {
+      name: '材料・容器置場',
+      points: [[15397, 1542.4], [17232.6, 5589.6], [16695.9, 5915.9], [14803.6, 1697.8], [15239.9, 1526]]
+    },
+    {
+      name: '第５倉庫',
+      points: [[13961.1, 10377.6], [13555.9, 11259.3], [13815.1, 11422.7], [13792.2, 11474.4], [13935.3, 11563.6], [14363.5, 10631.9]]
+    },
+    {
+      name: '新事務所',
+      points: [[8304.7, 8263.4], [8936.3, 8307.4], [8965.8, 9664.9], [9147.6, 9673.9], [9134.4, 10030.5], [8963.5, 10022], [8947.9, 10443.5], [8370, 10414.7]]
+    },
+    {
+      name: '第二原料倉庫',
+      points: [[12476.6, 9277], [12888, 9497.3], [12212.2, 10878.2], [11786.2, 10657.9]]
+    },
+    {
+      name: 'コンテナ倉庫',
+      points: [[13196.7, 9907.3], [13547.8, 10169.1], [12991.9, 11165.4], [12642.7, 10903.6]]
+    },
+    {
+      name: '守衛室',
+      points: [[16287.5, 7682.1], [16516.4, 7845.4], [16289.3, 8274.2], [16060.4, 8110.9]]
+    },
+    {
+      name: '検収倉庫',
+      points: [[14497.6, 8927.9], [14717.2, 8505.6], [15829.9, 9282.7], [15610.4, 9707.2]]
+    },
+    {
+      name: '北プラットホーム',
+      points: [[1067.1, 4500.1], [1277.4, 4485], [1382.2, 6319.3], [1173.7, 6334.7]]
+    }
+  ];
+
+  // 敷地全体の境界線。原本図面(PDF)の赤線ベクター座標を実測してつないだもの。
+  var SITE_BOUNDARY = [
+    { x: 879.4, y: 2086.4 }, { x: 1078.6, y: 1857.8 }, { x: 1344.5, y: 1734.5 },
+    { x: 1827.7, y: 1676.4 }, { x: 2218.6, y: 1676.4 }, { x: 2367.2, y: 1752.6 },
+    { x: 2542.3, y: 1810.7 }, { x: 3058.3, y: 1828.8 }, { x: 3141.2, y: 1828.8 },
+    { x: 3300.1, y: 1476.9 }, { x: 3305.7, y: 1485.6 }, { x: 2797.2, y: 1485.6 },
+    { x: 2797.2, y: 1313.6 }, { x: 3295.4, y: 1313.6 }, { x: 3451.8, y: 893.5 },
+    { x: 4132.3, y: 893.5 }, { x: 4132.3, y: 1570.5 }, { x: 3518.7, y: 1570.5 },
+    { x: 3529, y: 1561.8 }, { x: 3516.8, y: 1590.1 }, { x: 3438, y: 1811 },
+    { x: 3963.4, y: 1811 }, { x: 4197, y: 1738.1 }, { x: 6612.1, y: 1738.1 },
+    { x: 6593.3, y: 1733.8 }, { x: 7086.8, y: 1542.2 }, { x: 7814, y: 1074.2 },
+    { x: 8698.7, y: 530 }, { x: 9524.4, y: 101.2 }, { x: 10469.2, y: 81.6 },
+    { x: 11303.3, y: 81.6 }, { x: 11295.8, y: 81.6 }, { x: 14250.3, y: 22.8 },
+    { x: 14642, y: 37.9 }, { x: 17518.5, y: 5299 }, { x: 15497.5, y: 10309.4 },
+    { x: 14498.6, y: 12439.5 }, { x: 13716.4, y: 12173.6 }, { x: 9500, y: 11492.2 },
+    { x: 3393.9, y: 9759.5 }, { x: 2827.2, y: 9494 }, { x: 2097.3, y: 8923.7 },
+    { x: 1494.9, y: 8048.6 }, { x: 1215.3, y: 7138.7 }, { x: 943.2, y: 4389.4 },
+    { x: 1191.1, y: 4381.2 }, { x: 943.5, y: 4219.3 }, { x: 1191.1, y: 3876.4 },
+    { x: 905.4, y: 3676.4 }, { x: 848.2, y: 2514.4 }, { x: 886.3, y: 2523.9 },
+    { x: 857.7, y: 2076.2 }
+  ];
+
+  // ラベルの無い小さな建屋・設備(タンク・小屋など)。
+  var SITE_UNLABELED = [
+    { x: 11262.7, y: 9896.5, w: 419.1, h: 247.6 },
+    { x: 8586.2, y: 8343.9, w: 28.6, h: 114.3 },
+    { x: 5090.5, y: 8772.5, w: 361.9, h: 266.7 },
+    { x: 4490.4, y: 5600.7, w: 381.0, h: 361.9 },
+    { x: 2452.1, y: 4924.4, w: 381.0, h: 323.8 },
+    { x: 4442.8, y: 5695.9, w: 866.8, h: 457.2 },
+    { x: 12248.8, y: 4141.1, w: 214.8, h: 183.0 }
+  ];
+
+  // 新事務所付近の池。原本図面(PDF)のベクター座標を実測して変換したもの。
+  var SITE_POND = [
+    { x: 9600, y: 7185.7 }, { x: 10485.2, y: 7680.8 }, { x: 11189.1, y: 8191.4 },
+    { x: 11930.6, y: 8851.7 }, { x: 11443.7, y: 9675 }, { x: 10998, y: 10474.3 },
+    { x: 10678.1, y: 10375.2 }, { x: 10633.2, y: 10409.9 }, { x: 9335.1, y: 10141.3 },
+    { x: 9356.5, y: 9447 }, { x: 9314.6, y: 8926.3 }, { x: 9272.5, y: 8329.7 },
+    { x: 9483.6, y: 8218.7 }, { x: 9492.7, y: 8019.1 }, { x: 9507.2, y: 7693.5 },
+    { x: 9600, y: 7185.7 }
+  ];
+
+  // 置場番号(no) -> 敷地図上の座標(建屋と同じEMU/1000スケール)。建屋名との対応が確認できたものだけをここに置く。
+  // 大型製缶(7/8/9/10)と西製品倉庫(15/25)は同じ建屋を共有するため、建屋の幅の中で少しずらして配置。
+  // このマップは番号を振り直す前(旧: ①②…㉛等)の並び順を前提にしている。番号を振り直しても対応関係は変わらない。
+  var LOCATION_MARKER_POS = {
+    2: { x: 2373.1, y: 5512.4 },
+    3: { x: 3879.9, y: 6999.1 },
+    4: { x: 5182.2, y: 8776.4 },
+    7: { x: 7743.6, y: 5265.3 },
+    8: { x: 8668.7, y: 5265.3 },
+    9: { x: 9522.5, y: 5265.3 },
+    10: { x: 10447.6, y: 5265.3 },
+    11: { x: 12906.8, y: 10514.6 },
+    12: { x: 8286.9, y: 9274.9 },
+    15: { x: 9029.4, y: 11633.8 },
+    19: { x: 14987.8, y: 6167.6 },
+    22: { x: 14355.4, y: 8824.3 },
+    23: { x: 6502.9, y: 7510.5 },
+    25: { x: 9457.5, y: 11633.8 },
+    27: { x: 6783.0, y: 7187.4 },
+    29: { x: 5912.1, y: 10022.7 },
+    32: { x: 12690.0, y: 5453.6 },
+    33: { x: 12979.9, y: 6977.3 }
+  };
+
+  // 建屋ラベルが枠からはみ出さないよう、名前の長さと枠の大きさから文字サイズを決める。
+  function fitBuildingLabelFontSize_(w, h, name, isNarrowTall) {
+    var available = isNarrowTall ? h : w;
+    var fit = (available / name.length) * 0.85;
+    return Math.max(40, Math.min(145, fit));
+  }
+
+  function classifyBuilding_(name) {
+    if (name.indexOf('倉庫') !== -1 || name.indexOf('置場') !== -1) return 'bldg-warehouse';
+    if (name.indexOf('事務所') !== -1 || name.indexOf('室') !== -1) return 'bldg-office';
+    return 'bldg-factory';
+  }
+
+  // 建物の位置・向き・大きさの調整(建物編集モード)関連。
+  var buildingRegistryMap_ = {};
+
+  function registerBuilding_(id, name, cx, cy) {
+    buildingRegistryMap_[id] = { id: id, name: name, cx: cx, cy: cy };
+  }
+
+  function buildingById_(id) {
+    return buildingRegistryMap_[id];
+  }
+
+  function buildingTransform_(cx, cy, o) {
+    return 'translate(' + o.dx + ',' + o.dy + ') translate(' + cx + ',' + cy + ') ' +
+      'rotate(' + o.rotation + ') scale(' + o.scale + ') translate(' + (-cx) + ',' + (-cy) + ')';
+  }
+
+  function attachBuildingInteraction_(svg, g, id) {
+    g.classList.add('site-building-editable');
+    if (id === selectedBuildingId) {
+      g.classList.add('site-building-selected');
+      attachBuildingDrag_(svg, g, id);
+    }
+
+    g.addEventListener('click', function (evt) {
+      evt.stopPropagation();
+      if (g._buildingMoved) {
+        g._buildingMoved = false;
+        return;
+      }
+      selectBuilding_(id);
+    });
+  }
+
+  function attachBuildingDrag_(svg, g, id) {
+    var dragging = false;
+    var startPos = null;
+    var startOverride = buildingOverride_(id);
+    var startDx = startOverride.dx || 0;
+    var startDy = startOverride.dy || 0;
+
+    function toSvgPoint(evt) {
+      var pt = svg.createSVGPoint();
+      pt.x = evt.clientX;
+      pt.y = evt.clientY;
+      var ctm = svg.getScreenCTM();
+      if (!ctm) return { x: 0, y: 0 };
+      var loc = pt.matrixTransform(ctm.inverse());
+      return { x: loc.x, y: loc.y };
+    }
+
+    g.addEventListener('pointerdown', function (evt) {
+      dragging = true;
+      g._buildingMoved = false;
+      startPos = toSvgPoint(evt);
+      g.setPointerCapture(evt.pointerId);
+      evt.preventDefault();
+      evt.stopPropagation();
+    });
+
+    g.addEventListener('pointermove', function (evt) {
+      if (!dragging) return;
+      var p = toSvgPoint(evt);
+      var dx = p.x - startPos.x;
+      var dy = p.y - startPos.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) g._buildingMoved = true;
+
+      var cur = buildingOverride_(id);
+      cur.dx = startDx + dx;
+      cur.dy = startDy + dy;
+      buildingOverrides[id] = cur;
+
+      var reg = buildingById_(id);
+      g.setAttribute('transform', buildingTransform_(reg.cx, reg.cy, cur));
+    });
+
+    g.addEventListener('pointerup', function (evt) {
+      if (!dragging) return;
+      dragging = false;
+      g.releasePointerCapture(evt.pointerId);
+      if (g._buildingMoved) {
+        saveBuildingOverride_(id);
+      }
+    });
+  }
+
+  var MARKER_PIN_R = 165;
+
+  // 置場番号(no) -> 地図上の座標。スプレッドシートに保存された座標(ユーザーがドラッグで調整したもの)を
+  // 優先し、無ければコード側の初期配置(LOCATION_MARKER_POS)を使う。
+  function resolveMarkerPos_(r) {
+    var x = Number(r.mapX);
+    var y = Number(r.mapY);
+    var hasSaved = r.mapX !== '' && r.mapX !== null && r.mapX !== undefined && !isNaN(x) &&
+      r.mapY !== '' && r.mapY !== null && r.mapY !== undefined && !isNaN(y);
+    if (hasSaved) {
+      return { x: x, y: y };
+    }
+    return LOCATION_MARKER_POS[r.no] || null;
+  }
+
+  function buildMarkerGroup_(svgNS, pos, levelClass) {
+    var g = document.createElementNS(svgNS, 'g');
+    g.setAttribute('class', 'site-marker ' + levelClass);
+
+    var shadow = document.createElementNS(svgNS, 'ellipse');
+    shadow.setAttribute('class', 'site-marker-shadow');
+    g.appendChild(shadow);
+
+    var tail = document.createElementNS(svgNS, 'polygon');
+    g.appendChild(tail);
+
+    var circle = document.createElementNS(svgNS, 'circle');
+    circle.setAttribute('r', MARKER_PIN_R);
+    g.appendChild(circle);
+
+    var label = document.createElementNS(svgNS, 'text');
+    g.appendChild(label);
+
+    positionMarkerGroup_(g, pos);
+    return g;
+  }
+
+  function positionMarkerGroup_(g, pos) {
+    var pinR = MARKER_PIN_R;
+    var bubbleCy = pos.y - pinR * 1.5;
+    var shadow = g.children[0], tail = g.children[1], circle = g.children[2], label = g.children[3];
+
+    shadow.setAttribute('cx', pos.x);
+    shadow.setAttribute('cy', pos.y + 14);
+    shadow.setAttribute('rx', pinR * 0.5);
+    shadow.setAttribute('ry', pinR * 0.2);
+
+    tail.setAttribute('points',
+      (pos.x - pinR * 0.55) + ',' + (bubbleCy + pinR * 0.7) + ' ' +
+      (pos.x + pinR * 0.55) + ',' + (bubbleCy + pinR * 0.7) + ' ' +
+      pos.x + ',' + pos.y
+    );
+
+    circle.setAttribute('cx', pos.x);
+    circle.setAttribute('cy', bubbleCy);
+
+    label.setAttribute('x', pos.x);
+    label.setAttribute('y', bubbleCy);
+  }
+
+  // 配置編集モード中に、マーカーをドラッグして位置を変更・保存できるようにする。
+  function attachMarkerDrag_(svg, g, r, initialPos) {
+    g.classList.add('site-marker-draggable');
+    var dragging = false;
+    var moved = false;
+    var currentPos = { x: initialPos.x, y: initialPos.y };
+
+    function toSvgPoint(evt) {
+      var pt = svg.createSVGPoint();
+      pt.x = evt.clientX;
+      pt.y = evt.clientY;
+      var ctm = svg.getScreenCTM();
+      if (!ctm) return currentPos;
+      var loc = pt.matrixTransform(ctm.inverse());
+      return { x: loc.x, y: loc.y };
+    }
+
+    g.addEventListener('pointerdown', function (evt) {
+      dragging = true;
+      moved = false;
+      g.setPointerCapture(evt.pointerId);
+      evt.preventDefault();
+    });
+
+    g.addEventListener('pointermove', function (evt) {
+      if (!dragging) return;
+      moved = true;
+      currentPos = toSvgPoint(evt);
+      positionMarkerGroup_(g, currentPos);
+    });
+
+    g.addEventListener('pointerup', function (evt) {
+      if (!dragging) return;
+      dragging = false;
+      g.releasePointerCapture(evt.pointerId);
+
+      if (!moved) {
+        openEditModal(r);
+        return;
+      }
+
+      var newX = Math.round(currentPos.x);
+      var newY = Math.round(currentPos.y);
+      r.mapX = newX;
+      r.mapY = newY;
+
+      google.script.run
+        .withSuccessHandler(function () {})
+        .withFailureHandler(showTopError)
+        .updateLocation(r.no, { mapX: newX, mapY: newY });
+    });
+  }
+
+  function renderSiteMap(records) {
+    var svg = document.getElementById('siteMapSvg');
+    var svgNS = 'http://www.w3.org/2000/svg';
+    svg.innerHTML = '';
+
+    var ground = document.createElementNS(svgNS, 'rect');
+    ground.setAttribute('class', 'site-ground-rect');
+    ground.setAttribute('x', -300);
+    ground.setAttribute('y', -300);
+    ground.setAttribute('width', 17300);
+    ground.setAttribute('height', 12700);
+    svg.appendChild(ground);
+
+    var boundary = document.createElementNS(svgNS, 'polygon');
+    boundary.setAttribute('class', 'site-boundary-rect');
+    boundary.setAttribute('points', SITE_BOUNDARY.map(function (p) { return p.x + ',' + p.y; }).join(' '));
+    svg.appendChild(boundary);
+
+    var pond = document.createElementNS(svgNS, 'polygon');
+    pond.setAttribute('class', 'site-pond');
+    pond.setAttribute('points', SITE_POND.map(function (p) { return p.x + ',' + p.y; }).join(' '));
+    svg.appendChild(pond);
+
+    SITE_UNLABELED.forEach(function (u) {
+      var rect = document.createElementNS(svgNS, 'rect');
+      rect.setAttribute('class', 'site-unlabeled-rect');
+      rect.setAttribute('x', u.x);
+      rect.setAttribute('y', u.y);
+      rect.setAttribute('width', u.w);
+      rect.setAttribute('height', u.h);
+      svg.appendChild(rect);
+    });
+
+    buildingRegistryMap_ = {};
+
+    SITE_BUILDINGS.forEach(function (b, idx) {
+      var id = 'rect:' + idx;
+      var category = classifyBuilding_(b.name);
+      var cx = b.x + b.w / 2;
+      var cy = b.y + b.h / 2;
+      registerBuilding_(id, b.name, cx, cy);
+
+      var g = document.createElementNS(svgNS, 'g');
+      g.setAttribute('transform', buildingTransform_(cx, cy, buildingOverride_(id)));
+
+      var rect = document.createElementNS(svgNS, 'rect');
+      rect.setAttribute('class', 'site-building-rect ' + category);
+      rect.setAttribute('x', b.x);
+      rect.setAttribute('y', b.y);
+      rect.setAttribute('width', b.w);
+      rect.setAttribute('height', b.h);
+      g.appendChild(rect);
+
+      var roofH = Math.min(b.h * 0.24, 130);
+      var roof = document.createElementNS(svgNS, 'rect');
+      roof.setAttribute('class', 'site-roof ' + category);
+      roof.setAttribute('x', b.x);
+      roof.setAttribute('y', b.y);
+      roof.setAttribute('width', b.w);
+      roof.setAttribute('height', roofH);
+      g.appendChild(roof);
+
+      var isNarrowTall = b.h > b.w * 1.3;
+
+      var text = document.createElementNS(svgNS, 'text');
+      text.setAttribute('class', 'site-building-label');
+      text.setAttribute('x', cx);
+      text.setAttribute('y', cy);
+      text.setAttribute('dominant-baseline', 'central');
+      text.style.fontSize = fitBuildingLabelFontSize_(b.w, b.h, b.name, isNarrowTall) + 'px';
+      if (isNarrowTall) {
+        text.setAttribute('transform', 'rotate(-90 ' + cx + ' ' + cy + ')');
+      }
+      text.textContent = b.name;
+      g.appendChild(text);
+
+      if (buildingEditMode) {
+        attachBuildingInteraction_(svg, g, id);
+      }
+      svg.appendChild(g);
+    });
+
+    SITE_BUILDING_SHAPES.forEach(function (b, idx) {
+      var id = 'shape:' + idx;
+      var category = classifyBuilding_(b.name);
+      var xs = b.points.map(function (p) { return p[0]; });
+      var ys = b.points.map(function (p) { return p[1]; });
+      var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
+      var minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+      var cx = (minX + maxX) / 2;
+      var cy = (minY + maxY) / 2;
+      registerBuilding_(id, b.name, cx, cy);
+
+      var g = document.createElementNS(svgNS, 'g');
+      g.setAttribute('transform', buildingTransform_(cx, cy, buildingOverride_(id)));
+
+      var polygon = document.createElementNS(svgNS, 'polygon');
+      polygon.setAttribute('class', 'site-building-rect ' + category);
+      polygon.setAttribute('points', b.points.map(function (p) { return p[0] + ',' + p[1]; }).join(' '));
+      g.appendChild(polygon);
+
+      var shapeW = maxX - minX, shapeH = maxY - minY;
+      var isNarrowTall = shapeH > shapeW * 1.3;
+
+      var text = document.createElementNS(svgNS, 'text');
+      text.setAttribute('class', 'site-building-label');
+      text.setAttribute('x', cx);
+      text.setAttribute('y', cy);
+      text.setAttribute('dominant-baseline', 'central');
+      text.style.fontSize = fitBuildingLabelFontSize_(shapeW, shapeH, b.name, isNarrowTall) + 'px';
+      if (isNarrowTall) {
+        text.setAttribute('transform', 'rotate(-90 ' + cx + ' ' + cy + ')');
+      }
+      text.textContent = b.name;
+      g.appendChild(text);
+
+      if (buildingEditMode) {
+        attachBuildingInteraction_(svg, g, id);
+      }
+      svg.appendChild(g);
+    });
+
+    areaZones.forEach(function (z) {
+      var id = 'zone:' + z.id;
+      var cx = z.x + z.w / 2;
+      var cy = z.y + z.h / 2;
+      registerBuilding_(id, z.name, cx, cy);
+
+      var g = document.createElementNS(svgNS, 'g');
+      g.setAttribute('transform', buildingTransform_(cx, cy, buildingOverride_(id)));
+
+      var rect = document.createElementNS(svgNS, 'rect');
+      rect.setAttribute('class', 'site-area-zone');
+      rect.setAttribute('x', z.x);
+      rect.setAttribute('y', z.y);
+      rect.setAttribute('width', z.w);
+      rect.setAttribute('height', z.h);
+      g.appendChild(rect);
+
+      var isNarrowTall = z.h > z.w * 1.3;
+      var text = document.createElementNS(svgNS, 'text');
+      text.setAttribute('class', 'site-area-zone-label');
+      text.setAttribute('x', cx);
+      text.setAttribute('y', cy);
+      text.setAttribute('dominant-baseline', 'central');
+      text.style.fontSize = fitBuildingLabelFontSize_(z.w, z.h, z.name, isNarrowTall) + 'px';
+      if (isNarrowTall) {
+        text.setAttribute('transform', 'rotate(-90 ' + cx + ' ' + cy + ')');
+      }
+      text.textContent = z.name;
+      g.appendChild(text);
+
+      if (buildingEditMode) {
+        attachBuildingInteraction_(svg, g, id);
+      }
+      svg.appendChild(g);
+    });
+
+    var unmatchedContainer = document.getElementById('unmatchedCards');
+    unmatchedContainer.innerHTML = '';
+
+    records.forEach(function (r) {
+      var pos = resolveMarkerPos_(r);
+      var pct = maxUtilizationPct(r);
+      var levelClass = 'level-empty';
+      if (pct !== null) {
+        levelClass = pct >= 100 ? 'level-over' : (pct >= 80 ? 'level-warn' : 'level-ok');
+      }
+
+      if (pos) {
+        var g = buildMarkerGroup_(svgNS, pos, levelClass);
+        g.children[3].textContent = r.no;
+
+        if (placementEditMode) {
+          attachMarkerDrag_(svg, g, r, pos);
+        } else {
+          g.addEventListener('click', function () { openEditModal(r); });
+        }
+        svg.appendChild(g);
+      } else {
+        var card = document.createElement('div');
+        card.className = 'map-card ' + levelClass;
+        card.innerHTML =
+          '<div class="map-no">' + escapeHtml(r.no) + '</div>' +
+          '<div class="map-name">' + escapeHtml(r.name) + (r.position ? '(' + escapeHtml(r.position) + ')' : '') + '</div>' +
+          '<div class="map-pct">' + (pct === null ? '-' : pct + '%') + '</div>';
+
+        card.addEventListener('click', function () { openEditModal(r); });
+        unmatchedContainer.appendChild(card);
+      }
+    });
+  }
+
+  function maxUtilizationPct(r) {
+    var best = null;
+    SIZE_KEYS.forEach(function (key) {
+      var actual = Number(r['a' + key]) || 0;
+      var max = Number(r['m' + key]) || 0;
+      if (max > 0) {
+        var pct = Math.round((actual / max) * 100);
+        if (best === null || pct > best) best = pct;
+      }
+    });
+    return best;
+  }
+
+  function openEditModal(record) {
+    var html =
+      '<div class="modal-backdrop" id="modalBackdrop">' +
+      '  <div class="modal wide">' +
+      '    <h2>置場を編集: ' + escapeHtml(record.no) + ' ' + escapeHtml(record.name) + '</h2>' +
+      '    <div class="field"><label>置場名</label><input id="f_name" value="' + escapeAttr(record.name) + '"></div>' +
+      '    <div class="field"><label>位置</label><input id="f_position" value="' + escapeAttr(record.position) + '"></div>' +
+      '    <div class="field-grid">' +
+      '      <div class="field"><label>20kg 実績</label><input id="f_a20" type="number" min="0" value="' + numAttr(record.a20) + '"></div>' +
+      '      <div class="field"><label>20kg MAX</label><input id="f_m20" type="number" min="0" value="' + numAttr(record.m20) + '"></div>' +
+      '      <div class="field"><label>30kg 実績</label><input id="f_a30" type="number" min="0" value="' + numAttr(record.a30) + '"></div>' +
+      '      <div class="field"><label>30kg MAX</label><input id="f_m30" type="number" min="0" value="' + numAttr(record.m30) + '"></div>' +
+      '      <div class="field"><label>50kg 実績</label><input id="f_a50" type="number" min="0" value="' + numAttr(record.a50) + '"></div>' +
+      '      <div class="field"><label>50kg MAX</label><input id="f_m50" type="number" min="0" value="' + numAttr(record.m50) + '"></div>' +
+      '    </div>' +
+      '    <div class="field"><label>備考</label><input id="f_note" value="' + escapeAttr(record.note) + '"></div>' +
+      '    <div id="modalError" class="error-text"></div>' +
+      '    <div class="modal-actions">' +
+      '      <button class="secondary" id="modalCancel">キャンセル</button>' +
+      '      <button id="modalSave">保存</button>' +
+      '    </div>' +
+      '  </div>' +
+      '</div>';
+
+    document.getElementById('modalRoot').innerHTML = html;
+    document.getElementById('modalCancel').addEventListener('click', closeModal);
+
+    document.getElementById('modalSave').addEventListener('click', function () {
+      var updates = {
+        name: document.getElementById('f_name').value,
+        position: document.getElementById('f_position').value,
+        a20: document.getElementById('f_a20').value,
+        m20: document.getElementById('f_m20').value,
+        a30: document.getElementById('f_a30').value,
+        m30: document.getElementById('f_m30').value,
+        a50: document.getElementById('f_a50').value,
+        m50: document.getElementById('f_m50').value,
+        note: document.getElementById('f_note').value
+      };
+
+      var btn = document.getElementById('modalSave');
+      btn.disabled = true;
+
+      google.script.run
+        .withSuccessHandler(function () {
+          closeModal();
+          search();
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          document.getElementById('modalError').textContent = err.message || String(err);
+        })
+        .updateLocation(record.no, updates);
+    });
+  }
+
+  function openAddModal() {
+    var html =
+      '<div class="modal-backdrop" id="modalBackdrop">' +
+      '  <div class="modal wide">' +
+      '    <h2>新規置場を登録</h2>' +
+      '    <div class="field"><label>番号 *</label><input id="f_no"></div>' +
+      '    <div class="field"><label>置場名</label><input id="f_name"></div>' +
+      '    <div class="field"><label>位置</label><input id="f_position"></div>' +
+      '    <div class="field-grid">' +
+      '      <div class="field"><label>20kg 実績</label><input id="f_a20" type="number" min="0" value="0"></div>' +
+      '      <div class="field"><label>20kg MAX</label><input id="f_m20" type="number" min="0" value="0"></div>' +
+      '      <div class="field"><label>30kg 実績</label><input id="f_a30" type="number" min="0" value="0"></div>' +
+      '      <div class="field"><label>30kg MAX</label><input id="f_m30" type="number" min="0" value="0"></div>' +
+      '      <div class="field"><label>50kg 実績</label><input id="f_a50" type="number" min="0" value="0"></div>' +
+      '      <div class="field"><label>50kg MAX</label><input id="f_m50" type="number" min="0" value="0"></div>' +
+      '    </div>' +
+      '    <div class="field"><label>備考</label><input id="f_note"></div>' +
+      '    <div id="modalError" class="error-text"></div>' +
+      '    <div class="modal-actions">' +
+      '      <button class="secondary" id="modalCancel">キャンセル</button>' +
+      '      <button id="modalSave">登録</button>' +
+      '    </div>' +
+      '  </div>' +
+      '</div>';
+
+    document.getElementById('modalRoot').innerHTML = html;
+    document.getElementById('modalCancel').addEventListener('click', closeModal);
+
+    document.getElementById('modalSave').addEventListener('click', function () {
+      var data = {
+        no: document.getElementById('f_no').value.trim(),
+        name: document.getElementById('f_name').value,
+        position: document.getElementById('f_position').value,
+        a20: document.getElementById('f_a20').value,
+        m20: document.getElementById('f_m20').value,
+        a30: document.getElementById('f_a30').value,
+        m30: document.getElementById('f_m30').value,
+        a50: document.getElementById('f_a50').value,
+        m50: document.getElementById('f_m50').value,
+        note: document.getElementById('f_note').value
+      };
+
+      if (!data.no) {
+        document.getElementById('modalError').textContent = '番号は必須です';
+        return;
+      }
+
+      var btn = document.getElementById('modalSave');
+      btn.disabled = true;
+
+      google.script.run
+        .withSuccessHandler(function () {
+          closeModal();
+          search();
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          document.getElementById('modalError').textContent = err.message || String(err);
+        })
+        .addLocation(data);
+    });
+  }
+
+  function closeModal() {
+    document.getElementById('modalRoot').innerHTML = '';
+  }
+
+  function showTopError(err) {
+    alert('エラー: ' + (err.message || String(err)));
+  }
+
+  function numAttr(v) {
+    return (v === null || v === undefined || v === '') ? 0 : v;
+  }
+
+  function escapeHtml(v) {
+    if (v === null || v === undefined) return '';
+    return String(v)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function escapeAttr(v) {
+    if (v === null || v === undefined) return '';
+    return String(v)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+</script>

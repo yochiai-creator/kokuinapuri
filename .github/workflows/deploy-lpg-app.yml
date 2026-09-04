@@ -1,0 +1,47 @@
+name: LPG在庫アプリを自動デプロイ
+
+on:
+  push:
+    branches:
+      - claude/gas-app-development-iqea3g
+    paths:
+      - "lpg-inventory-app/**"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-lpg-app
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: claspを導入
+        run: npm install -g @google/clasp
+
+      - name: clasp認証情報を書き出す
+        env:
+          CLASP_CREDENTIALS: ${{ secrets.CLASP_CREDENTIALS }}
+        run: printf '%s' "$CLASP_CREDENTIALS" > ~/.clasprc.json
+
+      - name: .clasp.jsonを作成
+        env:
+          GAS_SCRIPT_ID: ${{ secrets.GAS_SCRIPT_ID }}
+        run: |
+          printf '{"scriptId":"%s","rootDir":"."}' "$GAS_SCRIPT_ID" > lpg-inventory-app/.clasp.json
+
+      - name: Apps Scriptにpush
+        working-directory: lpg-inventory-app
+        run: clasp push -f
+
+      - name: 本番デプロイを更新
+        working-directory: lpg-inventory-app
+        env:
+          GAS_DEPLOYMENT_ID: ${{ secrets.GAS_DEPLOYMENT_ID }}
+        run: clasp deploy -i "$GAS_DEPLOYMENT_ID" -d "Auto deploy ${{ github.sha }}"
